@@ -1,100 +1,169 @@
-name: Temporary YouTube exact download
+name: Temporary report technology logos
 
 on:
-  workflow_dispatch:
-    inputs:
-      youtube_url:
-        description: 'Public YouTube URL'
-        required: true
-        type: string
-      video_id:
-        description: 'YouTube video ID (used for output/artifact naming)'
-        required: true
-        type: string
-      format:
-        description: 'yt-dlp format selector'
-        required: false
-        default: '18'
-        type: string
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/temp-supercar-download.yml'
 
 permissions:
   contents: read
 
 jobs:
-  download:
+  collect-logos:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-
+    timeout-minutes: 15
     steps:
-      - name: Validate inputs
-        shell: bash
-        env:
-          YOUTUBE_URL: ${{ inputs.youtube_url }}
-          VIDEO_ID: ${{ inputs.video_id }}
-        run: |
-          set -euxo pipefail
-          test -n "$YOUTUBE_URL"
-          test -n "$VIDEO_ID"
-          case "$VIDEO_ID" in
-            *[!A-Za-z0-9_-]*) echo "Invalid video_id" >&2; exit 2 ;;
-          esac
-
-      - name: Start Cloudflare WARP proxy
+      - name: Download and organize logos
         shell: bash
         run: |
-          set -euxo pipefail
-          docker network create warp-net || true
-          docker run -d \
-            --name warp \
-            --network warp-net \
-            -p 1080:1080 \
-            --cap-add NET_ADMIN \
-            --sysctl net.ipv6.conf.all.disable_ipv6=0 \
-            --sysctl net.ipv4.conf.all.src_valid_mark=1 \
-            caomingjun/warp
+          set -euo pipefail
+          mkdir -p logos/core logos/secondary logos/aliases
 
-          for i in {1..20}; do
-            RESULT=$(curl -s --max-time 4 \
-              --socks5-hostname 127.0.0.1:1080 \
-              https://cloudflare.com/cdn-cgi/trace || true)
-            echo "$RESULT"
-            echo "$RESULT" | grep -qE 'warp=(on|plus)' && exit 0
-            sleep 2
-          done
-          exit 1
+          simple_icon() {
+            slug="$1"; out="$2"
+            if ! curl -fsSL --retry 3 "https://cdn.simpleicons.org/${slug}" -o "$out"; then
+              curl -fsSL --retry 3 "https://cdn.jsdelivr.net/npm/simple-icons@16.30.0/icons/${slug}.svg" -o "$out"
+            fi
+            test -s "$out"
+          }
 
-      - name: Install yt-dlp and Deno
-        shell: bash
-        run: |
-          set -euxo pipefail
-          python3 -m pip install --user -U --pre 'yt-dlp[default]'
-          curl -fsSL https://deno.land/install.sh | sh
-          echo "$HOME/.deno/bin" >> "$GITHUB_PATH"
+          first_url() {
+            out="$1"; shift
+            rm -f "$out"
+            for url in "$@"; do
+              if curl -fsSL --retry 2 "$url" -o "$out"; then
+                if test -s "$out"; then return 0; fi
+              fi
+              rm -f "$out"
+            done
+            return 1
+          }
 
-      - name: Download exact requested video
-        shell: bash
-        env:
-          YOUTUBE_URL: ${{ inputs.youtube_url }}
-          VIDEO_ID: ${{ inputs.video_id }}
-          FORMAT: ${{ inputs.format }}
-        run: |
-          set -euxo pipefail
-          deno --version
-          python3 -m yt_dlp \
-            --proxy 'socks5://127.0.0.1:1080' \
-            --remote-components ejs:github \
-            --js-runtimes deno \
-            --extractor-args 'youtube:player_client=web_embedded' \
-            --no-playlist \
-            -f "$FORMAT" \
-            -o "${VIDEO_ID}.%(ext)s" \
-            "$YOUTUBE_URL"
-          ls -lh "${VIDEO_ID}."*
+          # Core web/application stack
+          simple_icon react logos/core/react.svg
+          simple_icon typescript logos/core/typescript.svg
+          simple_icon vite logos/core/vite.svg
+          simple_icon leaflet logos/core/leaflet.svg
+          simple_icon python logos/core/python.svg
+          simple_icon fastapi logos/core/fastapi.svg
+          simple_icon pydantic logos/core/pydantic.svg
+          simple_icon jsonwebtokens logos/core/jwt-json-web-tokens.svg
+          simple_icon json logos/core/json.svg
 
-      - name: Upload exact video artifact
+          # Messaging
+          simple_icon mqtt logos/core/mqtt.svg
+          simple_icon eclipsemosquitto logos/core/eclipse-mosquitto.svg
+          simple_icon apachekafka logos/core/apache-kafka.svg
+
+          # Persistence
+          simple_icon postgresql logos/core/postgresql.svg
+          simple_icon timescale logos/core/timescaledb.svg
+          first_url logos/core/seaweedfs.png \
+            'https://raw.githubusercontent.com/seaweedfs/seaweedfs/master/note/seaweedfs.png' \
+            'https://raw.githubusercontent.com/seaweedfs/seaweedfs/main/note/seaweedfs.png'
+
+          # Observability
+          simple_icon opentelemetry logos/core/opentelemetry.svg
+          simple_icon prometheus logos/core/prometheus.svg
+          simple_icon grafana logos/core/grafana.svg
+          first_url logos/core/grafana-loki.png \
+            'https://raw.githubusercontent.com/grafana/loki/main/docs/sources/logo_and_name.png' \
+            'https://raw.githubusercontent.com/grafana/loki/master/docs/sources/logo_and_name.png'
+          first_url logos/core/grafana-tempo.png \
+            'https://raw.githubusercontent.com/grafana/tempo/main/docs/sources/tempo/logo_and_name.png' \
+            'https://raw.githubusercontent.com/grafana/tempo/master/docs/sources/tempo/logo_and_name.png'
+
+          # Delivery/tooling
+          simple_icon docker logos/core/docker.svg
+          simple_icon gnu logos/core/gnu-make.svg
+          simple_icon linux logos/secondary/linux.svg
+
+          # Technologies whose product logo is the parent project's logo
+          cp logos/core/apache-kafka.svg logos/aliases/kafka-connect.svg
+          cp logos/core/docker.svg logos/aliases/docker-compose.svg
+          cp logos/core/json.svg logos/aliases/json-schema.svg
+          cp logos/core/prometheus.svg logos/secondary/alertmanager-prometheus.svg
+          cp logos/core/prometheus.svg logos/secondary/node-exporter-prometheus.svg
+          cp logos/core/prometheus.svg logos/secondary/postgres-exporter-prometheus.svg
+
+          # Secondary operational tooling mentioned in deployment figure
+          first_url logos/secondary/pgadmin.svg \
+            'https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/pgadmin.svg' \
+            'https://raw.githubusercontent.com/pgadmin-org/pgadmin4/master/runtime/assets/welcome_logo.svg' || cp logos/core/postgresql.svg logos/secondary/pgadmin-postgresql-fallback.svg
+          first_url logos/secondary/cadvisor.svg \
+            'https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/cadvisor.svg' \
+            'https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/google-cadvisor.svg' || true
+          first_url logos/secondary/kafka-ui.svg \
+            'https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/kafka-ui.svg' \
+            'https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/kafka.svg' || cp logos/core/apache-kafka.svg logos/secondary/kafka-ui-kafka-fallback.svg
+
+          # Custom in-project CLI: no official external brand logo, so add a clearly labelled neutral badge.
+          cat > logos/secondary/boxctl-custom-tool.svg <<'SVG'
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 200" role="img" aria-label="boxctl custom CLI tool">
+            <rect x="4" y="4" width="632" height="192" rx="28" fill="#111827" stroke="#6b7280" stroke-width="8"/>
+            <path d="M70 70l40 30-40 30M125 132h55" fill="none" stroke="#e5e7eb" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+            <text x="220" y="124" font-family="monospace" font-size="64" font-weight="700" fill="#f9fafb">boxctl</text>
+          </svg>
+          SVG
+
+          cat > logos/manifest.csv <<'CSV'
+          technology,category,file,logo_note
+          React,core,core/react.svg,Simple Icons brand asset
+          TypeScript,core,core/typescript.svg,Simple Icons brand asset
+          Vite,core,core/vite.svg,Simple Icons brand asset
+          Leaflet,core,core/leaflet.svg,Simple Icons brand asset
+          Python 3.12,core,core/python.svg,Simple Icons brand asset
+          FastAPI,core,core/fastapi.svg,Simple Icons brand asset
+          Pydantic,core,core/pydantic.svg,Simple Icons brand asset
+          JWT,core,core/jwt-json-web-tokens.svg,JSON Web Tokens brand asset
+          JSON schemas,alias,aliases/json-schema.svg,JSON logo used because JSON Schema has no single product brand in the report
+          MQTT,core,core/mqtt.svg,Simple Icons brand asset
+          Mosquitto,core,core/eclipse-mosquitto.svg,Eclipse Mosquitto brand asset
+          Kafka Connect,alias,aliases/kafka-connect.svg,Apache Kafka parent branding
+          Apache Kafka,core,core/apache-kafka.svg,Simple Icons brand asset
+          PostgreSQL 16,core,core/postgresql.svg,Simple Icons brand asset
+          TimescaleDB,core,core/timescaledb.svg,Timescale brand asset
+          SeaweedFS (S3-compatible),core,core/seaweedfs.png,Official SeaweedFS repository logo
+          OpenTelemetry,core,core/opentelemetry.svg,Simple Icons brand asset
+          Prometheus,core,core/prometheus.svg,Simple Icons brand asset
+          Loki,core,core/grafana-loki.png,Official Grafana Loki repository logo
+          Tempo,core,core/grafana-tempo.png,Official Grafana Tempo repository logo
+          Grafana,core,core/grafana.svg,Simple Icons brand asset
+          Docker,core,core/docker.svg,Simple Icons brand asset
+          Docker Compose,alias,aliases/docker-compose.svg,Docker parent branding
+          GNU Make,core,core/gnu-make.svg,GNU brand used for GNU Make; avoids the unrelated Make.com logo
+          Linux,secondary,secondary/linux.svg,Validation host environment
+          Alertmanager,secondary,secondary/alertmanager-prometheus.svg,Prometheus project branding
+          Node exporter,secondary,secondary/node-exporter-prometheus.svg,Prometheus project branding
+          PostgreSQL exporter,secondary,secondary/postgres-exporter-prometheus.svg,Prometheus project branding
+          pgAdmin,secondary,secondary/pgadmin.svg,Dashboard Icons or official pgAdmin asset when available
+          cAdvisor,secondary,secondary/cadvisor.svg,Dashboard Icons asset when available
+          Kafka UI,secondary,secondary/kafka-ui.svg,Dashboard Icons asset when available
+          boxctl CLI,secondary,secondary/boxctl-custom-tool.svg,Custom project tool; neutral badge generated and explicitly not an official external logo
+          REST,standard,,Architecture style; no product logo included
+          HTTP,standard,,Protocol; no product logo included
+          S3-compatible interface,standard,,Interface standard in this project is provided by SeaweedFS; AWS logo intentionally not used
+          CSV
+
+          cat > logos/SOURCES.txt <<'TXT'
+          Core SVG logos: Simple Icons CDN (https://simpleicons.org / https://cdn.simpleicons.org), CC0 icon library with trademark disclaimer.
+          SeaweedFS logo: official seaweedfs/seaweedfs GitHub repository.
+          Grafana Loki logo: official grafana/loki GitHub repository.
+          Grafana Tempo logo: official grafana/tempo GitHub repository.
+          Secondary pgAdmin/cAdvisor/Kafka UI assets: Dashboard Icons CDN where available, with documented fallbacks.
+          Aliases are deliberate parent-brand representations (Kafka Connect -> Apache Kafka, Docker Compose -> Docker, exporters/Alertmanager -> Prometheus).
+          Trademark ownership remains with the respective projects/owners.
+          TXT
+
+          find logos -type f -maxdepth 3 -print | sort
+          zip -r report-tech-logos.zip logos
+          test -s report-tech-logos.zip
+
+      - name: Upload logo ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.video_id }}-video
-          path: ${{ inputs.video_id }}.*
+          name: report-tech-logos
+          path: report-tech-logos.zip
           if-no-files-found: error
           retention-days: 1
