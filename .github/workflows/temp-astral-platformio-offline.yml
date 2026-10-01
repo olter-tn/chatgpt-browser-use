@@ -67,6 +67,77 @@ jobs:
           pio pkg list --global 2>&1 | tee "$GITHUB_WORKSPACE/global-pio-pkgs.txt"
           find "$PLATFORMIO_CORE_DIR" -maxdepth 3 -type d | sort | tee "$GITHUB_WORKSPACE/core-layout.txt"
 
+      - name: ASTRAL ESP32 hardware API smoke
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/hw-smoke/src"
+          cat > "$GITHUB_WORKSPACE/hw-smoke/platformio.ini" <<'EOF'
+          [platformio]
+          default_envs =
+              esp32dev
+              nodemcu-32s
+
+          [env]
+          platform = espressif32@6.9.0
+          framework = arduino
+          lib_extra_dirs = ${sysenv.PLATFORMIO_CORE_DIR}/lib
+
+          [env:esp32dev]
+          board = esp32dev
+
+          [env:nodemcu-32s]
+          board = nodemcu-32s
+          EOF
+          cat > "$GITHUB_WORKSPACE/hw-smoke/src/main.cpp" <<'EOF'
+          #include <Arduino.h>
+          #include <Preferences.h>
+          #include <WiFi.h>
+          #include <AsyncTCP.h>
+          #include "driver/pcnt.h"
+
+          Preferences prefs;
+          AsyncClient asyncClient;
+
+          void setup() {
+            Serial.begin(115200);
+            prefs.begin("astral", false);
+            prefs.putUInt("boot", prefs.getUInt("boot", 0) + 1);
+            prefs.end();
+
+            pcnt_config_t cfg = {};
+            cfg.pulse_gpio_num = 34;
+            cfg.ctrl_gpio_num = PCNT_PIN_NOT_USED;
+            cfg.unit = PCNT_UNIT_0;
+            cfg.channel = PCNT_CHANNEL_0;
+            cfg.pos_mode = PCNT_COUNT_INC;
+            cfg.neg_mode = PCNT_COUNT_DEC;
+            cfg.lctrl_mode = PCNT_MODE_KEEP;
+            cfg.hctrl_mode = PCNT_MODE_KEEP;
+            cfg.counter_h_lim = 32767;
+            cfg.counter_l_lim = -32768;
+            pcnt_unit_config(&cfg);
+            pcnt_counter_pause(PCNT_UNIT_0);
+            pcnt_counter_clear(PCNT_UNIT_0);
+
+            ledcSetup(0, 20000, 10);
+            ledcAttachPin(25, 0);
+            ledcWrite(0, 0);
+            WiFi.mode(WIFI_OFF);
+          }
+
+          void loop() {
+            int16_t count = 0;
+            pcnt_get_counter_value(PCNT_UNIT_0, &count);
+            delay(10);
+          }
+          EOF
+          cd "$GITHUB_WORKSPACE/hw-smoke"
+          pio run 2>&1 | tee "$GITHUB_WORKSPACE/hw-smoke-pio-build.log"
+          test -f .pio/build/esp32dev/firmware.bin
+          test -f .pio/build/nodemcu-32s/firmware.bin
+          sha256sum .pio/build/esp32dev/firmware.bin .pio/build/nodemcu-32s/firmware.bin | tee "$GITHUB_WORKSPACE/hw-smoke-firmware-sha256.txt"
+
       - name: Pack offline bundle
         shell: bash
         run: |
@@ -94,9 +165,11 @@ jobs:
           tar -xzf "$GITHUB_WORKSPACE/astral-platformio-esp32-offline.tar.gz" -C "$TESTROOT"
           python3 -m venv "$TESTROOT/venv"
           "$TESTROOT/venv/bin/python" -m pip install --no-index --find-links "$TESTROOT/platformio-wheelhouse" platformio
-          mkdir -p "$TESTROOT/seed/src"
+          mkdir -p "$TESTROOT/seed/src" "$TESTROOT/hw-smoke/src"
           cp "$GITHUB_WORKSPACE/seed/platformio.ini" "$TESTROOT/seed/platformio.ini"
           cp "$GITHUB_WORKSPACE/seed/src/main.cpp" "$TESTROOT/seed/src/main.cpp"
+          cp "$GITHUB_WORKSPACE/hw-smoke/platformio.ini" "$TESTROOT/hw-smoke/platformio.ini"
+          cp "$GITHUB_WORKSPACE/hw-smoke/src/main.cpp" "$TESTROOT/hw-smoke/src/main.cpp"
           export PLATFORMIO_CORE_DIR="$TESTROOT/.pio-core"
           export HTTP_PROXY="http://127.0.0.1:9"
           export HTTPS_PROXY="http://127.0.0.1:9"
@@ -108,6 +181,11 @@ jobs:
           test -f .pio/build/esp32dev/firmware.bin
           test -f .pio/build/nodemcu-32s/firmware.bin
           sha256sum .pio/build/esp32dev/firmware.bin .pio/build/nodemcu-32s/firmware.bin | tee "$GITHUB_WORKSPACE/offline-firmware-sha256.txt"
+          cd "$TESTROOT/hw-smoke"
+          "$TESTROOT/venv/bin/pio" run 2>&1 | tee "$GITHUB_WORKSPACE/offline-hw-smoke-pio-build.log"
+          test -f .pio/build/esp32dev/firmware.bin
+          test -f .pio/build/nodemcu-32s/firmware.bin
+          sha256sum .pio/build/esp32dev/firmware.bin .pio/build/nodemcu-32s/firmware.bin | tee "$GITHUB_WORKSPACE/offline-hw-smoke-firmware-sha256.txt"
 
       - name: Upload evidence
         if: always()
@@ -125,6 +203,10 @@ jobs:
             ${{ github.workspace }}/offline-pio-version.txt
             ${{ github.workspace }}/offline-pio-build.log
             ${{ github.workspace }}/offline-firmware-sha256.txt
+            ${{ github.workspace }}/hw-smoke-pio-build.log
+            ${{ github.workspace }}/hw-smoke-firmware-sha256.txt
+            ${{ github.workspace }}/offline-hw-smoke-pio-build.log
+            ${{ github.workspace }}/offline-hw-smoke-firmware-sha256.txt
           if-no-files-found: warn
           retention-days: 1
 
