@@ -84,6 +84,31 @@ jobs:
           du -sh .pio-core platformio-wheelhouse
           ls -lh astral-platformio-esp32-offline.tar.gz
 
+      - name: Offline reproducibility test
+        shell: bash
+        run: |
+          set -euxo pipefail
+          TESTROOT="$GITHUB_WORKSPACE/offline-test"
+          rm -rf "$TESTROOT"
+          mkdir -p "$TESTROOT"
+          tar -xzf "$GITHUB_WORKSPACE/astral-platformio-esp32-offline.tar.gz" -C "$TESTROOT"
+          python3 -m venv "$TESTROOT/venv"
+          "$TESTROOT/venv/bin/python" -m pip install --no-index --find-links "$TESTROOT/platformio-wheelhouse" platformio
+          mkdir -p "$TESTROOT/seed/src"
+          cp "$GITHUB_WORKSPACE/seed/platformio.ini" "$TESTROOT/seed/platformio.ini"
+          cp "$GITHUB_WORKSPACE/seed/src/main.cpp" "$TESTROOT/seed/src/main.cpp"
+          export PLATFORMIO_CORE_DIR="$TESTROOT/.pio-core"
+          export HTTP_PROXY="http://127.0.0.1:9"
+          export HTTPS_PROXY="http://127.0.0.1:9"
+          export ALL_PROXY="http://127.0.0.1:9"
+          export NO_PROXY="localhost,127.0.0.1"
+          "$TESTROOT/venv/bin/pio" --version | tee "$GITHUB_WORKSPACE/offline-pio-version.txt"
+          cd "$TESTROOT/seed"
+          "$TESTROOT/venv/bin/pio" run 2>&1 | tee "$GITHUB_WORKSPACE/offline-pio-build.log"
+          test -f .pio/build/esp32dev/firmware.bin
+          test -f .pio/build/nodemcu-32s/firmware.bin
+          sha256sum .pio/build/esp32dev/firmware.bin .pio/build/nodemcu-32s/firmware.bin | tee "$GITHUB_WORKSPACE/offline-firmware-sha256.txt"
+
       - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -97,6 +122,9 @@ jobs:
             ${{ github.workspace }}/global-pio-pkgs.txt
             ${{ github.workspace }}/core-layout.txt
             ${{ github.workspace }}/astral-platformio-esp32-offline.tar.gz.sha256
+            ${{ github.workspace }}/offline-pio-version.txt
+            ${{ github.workspace }}/offline-pio-build.log
+            ${{ github.workspace }}/offline-firmware-sha256.txt
           if-no-files-found: warn
           retention-days: 1
 
