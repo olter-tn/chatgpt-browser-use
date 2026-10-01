@@ -35,7 +35,9 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/seed/src"
           cat > "$GITHUB_WORKSPACE/seed/platformio.ini" <<'EOF'
           [platformio]
-          default_envs = esp32dev,nodemcu-32s
+          default_envs =
+              esp32dev
+              nodemcu-32s
 
           [env]
           platform = espressif32@6.9.0
