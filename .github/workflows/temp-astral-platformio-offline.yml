@@ -1,0 +1,97 @@
+name: Temporary ASTRAL PlatformIO offline bundle
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/temp-astral-platformio-offline.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      PLATFORMIO_CORE_DIR: ${{ github.workspace }}/.pio-core
+      PLATFORMIO_DISABLE_PROGRESSBAR: "yes"
+    steps:
+      - name: Install PlatformIO
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 -m pip install --upgrade pip
+          python3 -m pip install --upgrade platformio
+          mkdir -p "$GITHUB_WORKSPACE/platformio-wheelhouse"
+          python3 -m pip download --dest "$GITHUB_WORKSPACE/platformio-wheelhouse" platformio
+          pio --version | tee "$GITHUB_WORKSPACE/platformio-version.txt"
+          python3 --version | tee "$GITHUB_WORKSPACE/python-version.txt"
+
+      - name: Prime exact ESP32 Arduino toolchain
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/seed/src"
+          cat > "$GITHUB_WORKSPACE/seed/platformio.ini" <<'EOF'
+          [platformio]
+          default_envs = esp32dev,nodemcu-32s
+
+          [env]
+          platform = espressif32@6.9.0
+          framework = arduino
+
+          [env:esp32dev]
+          board = esp32dev
+
+          [env:nodemcu-32s]
+          board = nodemcu-32s
+          EOF
+          cat > "$GITHUB_WORKSPACE/seed/src/main.cpp" <<'EOF'
+          #include <Arduino.h>
+          void setup() {}
+          void loop() {}
+          EOF
+          cd "$GITHUB_WORKSPACE/seed"
+          pio run 2>&1 | tee "$GITHUB_WORKSPACE/seed-pio-build.log"
+          pio pkg list 2>&1 | tee "$GITHUB_WORKSPACE/seed-pio-pkgs.txt"
+
+      - name: Pack offline bundle
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd "$GITHUB_WORKSPACE"
+          mkdir -p offline/.pio-core
+          cp -a .pio-core/platforms offline/.pio-core/
+          cp -a .pio-core/packages offline/.pio-core/
+          cp -a platformio-wheelhouse offline/
+          cp platformio-version.txt python-version.txt seed-pio-build.log seed-pio-pkgs.txt offline/
+          find offline -type f -print0 | sort -z | xargs -0 sha256sum > offline/SHA256SUMS.txt
+          tar -czf astral-platformio-esp32-offline.tar.gz -C offline .
+          sha256sum astral-platformio-esp32-offline.tar.gz | tee astral-platformio-esp32-offline.tar.gz.sha256
+          du -sh .pio-core platformio-wheelhouse
+          ls -lh astral-platformio-esp32-offline.tar.gz
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: astral-platformio-evidence
+          path: |
+            ${{ github.workspace }}/platformio-version.txt
+            ${{ github.workspace }}/python-version.txt
+            ${{ github.workspace }}/seed-pio-build.log
+            ${{ github.workspace }}/seed-pio-pkgs.txt
+            ${{ github.workspace }}/astral-platformio-esp32-offline.tar.gz.sha256
+          if-no-files-found: warn
+          retention-days: 1
+
+      - name: Upload offline PlatformIO ESP32 bundle
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: astral-platformio-esp32-offline
+          path: ${{ github.workspace }}/astral-platformio-esp32-offline.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
