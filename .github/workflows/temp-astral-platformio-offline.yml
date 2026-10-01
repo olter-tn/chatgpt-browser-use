@@ -58,6 +58,15 @@ jobs:
           pio run 2>&1 | tee "$GITHUB_WORKSPACE/seed-pio-build.log"
           pio pkg list 2>&1 | tee "$GITHUB_WORKSPACE/seed-pio-pkgs.txt"
 
+      - name: Cache ASTRAL web-server dependency packages
+        shell: bash
+        run: |
+          set -euxo pipefail
+          pio pkg install --global --library "esphome/AsyncTCP-esphome@2.1.4"
+          pio pkg install --global --library "esphome/ESPAsyncTCP-esphome"
+          pio pkg list --global 2>&1 | tee "$GITHUB_WORKSPACE/global-pio-pkgs.txt"
+          find "$PLATFORMIO_CORE_DIR" -maxdepth 3 -type d | sort | tee "$GITHUB_WORKSPACE/core-layout.txt"
+
       - name: Pack offline bundle
         shell: bash
         run: |
@@ -66,8 +75,9 @@ jobs:
           mkdir -p offline/.pio-core
           cp -a .pio-core/platforms offline/.pio-core/
           cp -a .pio-core/packages offline/.pio-core/
+          if [ -d .pio-core/lib ]; then cp -a .pio-core/lib offline/.pio-core/; fi
           cp -a platformio-wheelhouse offline/
-          cp platformio-version.txt python-version.txt seed-pio-build.log seed-pio-pkgs.txt offline/
+          cp platformio-version.txt python-version.txt seed-pio-build.log seed-pio-pkgs.txt global-pio-pkgs.txt core-layout.txt offline/
           find offline -type f -print0 | sort -z | xargs -0 sha256sum > offline/SHA256SUMS.txt
           tar -czf astral-platformio-esp32-offline.tar.gz -C offline .
           sha256sum astral-platformio-esp32-offline.tar.gz | tee astral-platformio-esp32-offline.tar.gz.sha256
@@ -84,6 +94,8 @@ jobs:
             ${{ github.workspace }}/python-version.txt
             ${{ github.workspace }}/seed-pio-build.log
             ${{ github.workspace }}/seed-pio-pkgs.txt
+            ${{ github.workspace }}/global-pio-pkgs.txt
+            ${{ github.workspace }}/core-layout.txt
             ${{ github.workspace }}/astral-platformio-esp32-offline.tar.gz.sha256
           if-no-files-found: warn
           retention-days: 1
