@@ -1,4 +1,4 @@
-name: Temporary report technology logos
+name: Temporary Facebook reel capture
 
 on:
   push:
@@ -10,160 +10,183 @@ permissions:
   contents: read
 
 jobs:
-  collect-logos:
+  capture:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
-      - name: Download and organize logos
+      - name: Install browser tooling
         shell: bash
         run: |
-          set -euo pipefail
-          mkdir -p logos/core logos/secondary logos/aliases
+          set -euxo pipefail
+          python3 -m pip install -U playwright requests
+          python3 -m playwright install chromium
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
 
-          simple_icon() {
-            slug="$1"; out="$2"
-            if ! curl -fsSL --retry 3 "https://cdn.simpleicons.org/${slug}" -o "$out"; then
-              curl -fsSL --retry 3 "https://cdn.jsdelivr.net/npm/simple-icons@16.30.0/icons/${slug}.svg" -o "$out"
-            fi
-            test -s "$out"
-          }
+      - name: Resolve and capture public reel
+        shell: bash
+        env:
+          TARGET_URL: "https://www.facebook.com/share/v/19obzn32AE/"
+        run: |
+          set -euxo pipefail
+          cat > /tmp/grab_fb.py <<'PY'
+          import asyncio, html as htmlmod, json, os, re, sys
+          from urllib.parse import urlparse
+          import requests
+          from playwright.async_api import async_playwright
 
-          first_url() {
-            out="$1"; shift
-            rm -f "$out"
-            for url in "$@"; do
-              if curl -fsSL --retry 2 "$url" -o "$out"; then
-                if test -s "$out"; then return 0; fi
-              fi
-              rm -f "$out"
-            done
-            return 1
-          }
+          TARGET = os.environ["TARGET_URL"]
+          KEYS = [
+              "browser_native_hd_url","playable_url_quality_hd","hd_src_no_ratelimit","hd_src",
+              "browser_native_sd_url","playable_url","sd_src_no_ratelimit","sd_src"
+          ]
 
-          # Core web/application stack
-          simple_icon react logos/core/react.svg
-          simple_icon typescript logos/core/typescript.svg
-          simple_icon vite logos/core/vite.svg
-          simple_icon leaflet logos/core/leaflet.svg
-          simple_icon python logos/core/python.svg
-          simple_icon fastapi logos/core/fastapi.svg
-          simple_icon pydantic logos/core/pydantic.svg
-          simple_icon jsonwebtokens logos/core/jwt-json-web-tokens.svg
-          simple_icon json logos/core/json.svg
+          def decode_fb(s):
+              s = htmlmod.unescape(str(s))
+              for _ in range(3):
+                  try:
+                      s = json.loads('"' + s.replace('\\', '\\\\').replace('"', '\\"') + '"')
+                  except Exception:
+                      break
+              return s.replace('\\u0025','%').replace('\\u0026','&').replace('\\/','/').strip()
 
-          # Messaging
-          simple_icon mqtt logos/core/mqtt.svg
-          simple_icon eclipsemosquitto logos/core/eclipse-mosquitto.svg
-          simple_icon apachekafka logos/core/apache-kafka.svg
+          def normalize_candidate(u):
+              if not u:
+                  return None
+              u = htmlmod.unescape(str(u))
+              u = u.replace('\\/','/').replace('\\u0026','&').replace('\\u0025','%')
+              try:
+                  u = bytes(u, 'utf-8').decode('unicode_escape')
+              except Exception:
+                  pass
+              u = u.strip('"\' ')
+              if u.startswith("https://") and "fbcdn.net" in u and ".mp4" in u:
+                  return u
+              return None
 
-          # Persistence
-          simple_icon postgresql logos/core/postgresql.svg
-          simple_icon timescale logos/core/timescaledb.svg
-          first_url logos/core/seaweedfs.png \
-            'https://raw.githubusercontent.com/seaweedfs/seaweedfs/master/note/seaweedfs.png' \
-            'https://raw.githubusercontent.com/seaweedfs/seaweedfs/main/note/seaweedfs.png'
+          def harvest(text):
+              out = []
+              for key in KEYS:
+                  for m in re.finditer(r'"' + re.escape(key) + r'"\s*:\s*"([^"]+)"', text):
+                      u = normalize_candidate(m.group(1))
+                      if u: out.append(u)
+              pats = [
+                  r'https:\\/\\/[^"\'<>\s]*fbcdn\.net[^"\'<>\s]*?\.mp4[^"\'<>\s]*',
+                  r'https://[^"\'<>\s]*fbcdn\.net[^"\'<>\s]*?\.mp4[^"\'<>\s]*'
+              ]
+              for pat in pats:
+                  for x in re.findall(pat, text, flags=re.I):
+                      u = normalize_candidate(x)
+                      if u: out.append(u)
+              seen = []
+              for u in out:
+                  if u not in seen:
+                      seen.append(u)
+              return seen
 
-          # Observability
-          simple_icon opentelemetry logos/core/opentelemetry.svg
-          simple_icon prometheus logos/core/prometheus.svg
-          simple_icon grafana logos/core/grafana.svg
-          first_url logos/core/grafana-loki.png \
-            'https://raw.githubusercontent.com/grafana/loki/main/docs/sources/logo_and_name.png' \
-            'https://raw.githubusercontent.com/grafana/loki/master/docs/sources/logo_and_name.png'
-          first_url logos/core/grafana-tempo.png \
-            'https://raw.githubusercontent.com/grafana/tempo/main/docs/sources/tempo/logo_and_name.png' \
-            'https://raw.githubusercontent.com/grafana/tempo/master/docs/sources/tempo/logo_and_name.png'
+          async def main():
+              candidates = []
+              network = []
+              async with async_playwright() as p:
+                  browser = await p.chromium.launch(headless=True, args=[
+                      "--no-sandbox","--disable-blink-features=AutomationControlled",
+                      "--disable-dev-shm-usage"
+                  ])
+                  context = await browser.new_context(
+                      user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+                      locale="en-US",
+                      viewport={"width":1280,"height":900}
+                  )
+                  page = await context.new_page()
+                  def on_response(resp):
+                      u = resp.url
+                      if "fbcdn.net" in u and ".mp4" in u:
+                          network.append(u)
+                  page.on("response", on_response)
+                  try:
+                      await page.goto(TARGET, wait_until="domcontentloaded", timeout=90000)
+                  except Exception as e:
+                      print("goto warning:", repr(e))
+                  await page.wait_for_timeout(8000)
+                  print("FINAL_URL", page.url)
+                  try:
+                      await page.screenshot(path="facebook-page.png", full_page=False)
+                  except Exception:
+                      pass
+                  text = await page.content()
+                  open("facebook-page.html","w",encoding="utf-8").write(text)
+                  candidates.extend(harvest(text))
+                  try:
+                      vals = await page.eval_on_selector_all("video", "els => els.flatMap(v => [v.src, v.currentSrc]).filter(Boolean)")
+                      for u in vals:
+                          n = normalize_candidate(u)
+                          if n: candidates.append(n)
+                  except Exception:
+                      pass
+                  try:
+                      resources = await page.evaluate("performance.getEntriesByType('resource').map(e=>e.name)")
+                      for u in resources:
+                          n = normalize_candidate(u)
+                          if n: candidates.append(n)
+                  except Exception:
+                      pass
+                  for u in network:
+                      n = normalize_candidate(u)
+                      if n: candidates.append(n)
+                  # Try starting the first visible video; the MP4 ticket is sometimes injected lazily.
+                  try:
+                      await page.evaluate("""() => { const v=document.querySelector('video'); if(v){v.muted=true; v.play().catch(()=>{});} }""")
+                      await page.wait_for_timeout(5000)
+                      text2 = await page.content()
+                      candidates.extend(harvest(text2))
+                      resources = await page.evaluate("performance.getEntriesByType('resource').map(e=>e.name)")
+                      for u in resources:
+                          n = normalize_candidate(u)
+                          if n: candidates.append(n)
+                  except Exception:
+                      pass
+                  await browser.close()
 
-          # Delivery/tooling
-          simple_icon docker logos/core/docker.svg
-          simple_icon gnu logos/core/gnu-make.svg
-          simple_icon linux logos/secondary/linux.svg
+              uniq=[]
+              for u in candidates:
+                  if u not in uniq: uniq.append(u)
+              open("candidates.txt","w",encoding="utf-8").write("\n".join(uniq))
+              print("CANDIDATES", len(uniq))
+              if not uniq:
+                  raise SystemExit("No fbcdn MP4 candidate found")
 
-          # Technologies whose product logo is the parent project's logo
-          cp logos/core/apache-kafka.svg logos/aliases/kafka-connect.svg
-          cp logos/core/docker.svg logos/aliases/docker-compose.svg
-          cp logos/core/json.svg logos/aliases/json-schema.svg
-          cp logos/core/prometheus.svg logos/secondary/alertmanager-prometheus.svg
-          cp logos/core/prometheus.svg logos/secondary/node-exporter-prometheus.svg
-          cp logos/core/prometheus.svg logos/secondary/postgres-exporter-prometheus.svg
+              ua="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"
+              for i,u in enumerate(uniq):
+                  print("TRY", i, u[:240])
+                  try:
+                      with requests.get(u, headers={"User-Agent":ua,"Referer":"https://www.facebook.com/"}, stream=True, timeout=60) as r:
+                          print("HTTP", r.status_code, r.headers.get("content-type"), r.headers.get("content-length"))
+                          if r.status_code != 200:
+                              continue
+                          with open("facebook-reel.mp4","wb") as f:
+                              for chunk in r.iter_content(1024*1024):
+                                  if chunk: f.write(chunk)
+                      if os.path.getsize("facebook-reel.mp4") > 100000:
+                          print("DOWNLOADED_BYTES", os.path.getsize("facebook-reel.mp4"))
+                          return
+                  except Exception as e:
+                      print("download error", repr(e))
+              raise SystemExit("Candidates found but none downloaded")
 
-          # Secondary operational tooling mentioned in deployment figure
-          first_url logos/secondary/pgadmin.svg \
-            'https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/pgadmin.svg' \
-            'https://raw.githubusercontent.com/pgadmin-org/pgadmin4/master/runtime/assets/welcome_logo.svg' || cp logos/core/postgresql.svg logos/secondary/pgadmin-postgresql-fallback.svg
-          first_url logos/secondary/cadvisor.svg \
-            'https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/cadvisor.svg' \
-            'https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/google-cadvisor.svg' || true
-          first_url logos/secondary/kafka-ui.svg \
-            'https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/kafka-ui.svg' \
-            'https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/kafka.svg' || cp logos/core/apache-kafka.svg logos/secondary/kafka-ui-kafka-fallback.svg
+          asyncio.run(main())
+          PY
+          python3 /tmp/grab_fb.py
+          ffprobe -v error -show_entries format=duration,size -show_entries stream=codec_name,codec_type,width,height -of json facebook-reel.mp4
+          ls -lh facebook-reel.mp4 facebook-page.png candidates.txt
 
-          # Custom in-project CLI: no official external brand logo, so add a clearly labelled neutral badge.
-          cat > logos/secondary/boxctl-custom-tool.svg <<'SVG'
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 200" role="img" aria-label="boxctl custom CLI tool">
-            <rect x="4" y="4" width="632" height="192" rx="28" fill="#111827" stroke="#6b7280" stroke-width="8"/>
-            <path d="M70 70l40 30-40 30M125 132h55" fill="none" stroke="#e5e7eb" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
-            <text x="220" y="124" font-family="monospace" font-size="64" font-weight="700" fill="#f9fafb">boxctl</text>
-          </svg>
-          SVG
-
-          cat > logos/manifest.csv <<'CSV'
-          technology,category,file,logo_note
-          React,core,core/react.svg,Simple Icons brand asset
-          TypeScript,core,core/typescript.svg,Simple Icons brand asset
-          Vite,core,core/vite.svg,Simple Icons brand asset
-          Leaflet,core,core/leaflet.svg,Simple Icons brand asset
-          Python 3.12,core,core/python.svg,Simple Icons brand asset
-          FastAPI,core,core/fastapi.svg,Simple Icons brand asset
-          Pydantic,core,core/pydantic.svg,Simple Icons brand asset
-          JWT,core,core/jwt-json-web-tokens.svg,JSON Web Tokens brand asset
-          JSON schemas,alias,aliases/json-schema.svg,JSON logo used because JSON Schema has no single product brand in the report
-          MQTT,core,core/mqtt.svg,Simple Icons brand asset
-          Mosquitto,core,core/eclipse-mosquitto.svg,Eclipse Mosquitto brand asset
-          Kafka Connect,alias,aliases/kafka-connect.svg,Apache Kafka parent branding
-          Apache Kafka,core,core/apache-kafka.svg,Simple Icons brand asset
-          PostgreSQL 16,core,core/postgresql.svg,Simple Icons brand asset
-          TimescaleDB,core,core/timescaledb.svg,Timescale brand asset
-          SeaweedFS (S3-compatible),core,core/seaweedfs.png,Official SeaweedFS repository logo
-          OpenTelemetry,core,core/opentelemetry.svg,Simple Icons brand asset
-          Prometheus,core,core/prometheus.svg,Simple Icons brand asset
-          Loki,core,core/grafana-loki.png,Official Grafana Loki repository logo
-          Tempo,core,core/grafana-tempo.png,Official Grafana Tempo repository logo
-          Grafana,core,core/grafana.svg,Simple Icons brand asset
-          Docker,core,core/docker.svg,Simple Icons brand asset
-          Docker Compose,alias,aliases/docker-compose.svg,Docker parent branding
-          GNU Make,core,core/gnu-make.svg,GNU brand used for GNU Make; avoids the unrelated Make.com logo
-          Linux,secondary,secondary/linux.svg,Validation host environment
-          Alertmanager,secondary,secondary/alertmanager-prometheus.svg,Prometheus project branding
-          Node exporter,secondary,secondary/node-exporter-prometheus.svg,Prometheus project branding
-          PostgreSQL exporter,secondary,secondary/postgres-exporter-prometheus.svg,Prometheus project branding
-          pgAdmin,secondary,secondary/pgadmin.svg,Dashboard Icons or official pgAdmin asset when available
-          cAdvisor,secondary,secondary/cadvisor.svg,Dashboard Icons asset when available
-          Kafka UI,secondary,secondary/kafka-ui.svg,Dashboard Icons asset when available
-          boxctl CLI,secondary,secondary/boxctl-custom-tool.svg,Custom project tool; neutral badge generated and explicitly not an official external logo
-          REST,standard,,Architecture style; no product logo included
-          HTTP,standard,,Protocol; no product logo included
-          S3-compatible interface,standard,,Interface standard in this project is provided by SeaweedFS; AWS logo intentionally not used
-          CSV
-
-          cat > logos/SOURCES.txt <<'TXT'
-          Core SVG logos: Simple Icons CDN (https://simpleicons.org / https://cdn.simpleicons.org), CC0 icon library with trademark disclaimer.
-          SeaweedFS logo: official seaweedfs/seaweedfs GitHub repository.
-          Grafana Loki logo: official grafana/loki GitHub repository.
-          Grafana Tempo logo: official grafana/tempo GitHub repository.
-          Secondary pgAdmin/cAdvisor/Kafka UI assets: Dashboard Icons CDN where available, with documented fallbacks.
-          Aliases are deliberate parent-brand representations (Kafka Connect -> Apache Kafka, Docker Compose -> Docker, exporters/Alertmanager -> Prometheus).
-          Trademark ownership remains with the respective projects/owners.
-          TXT
-
-          find logos -type f -maxdepth 3 -print | sort
-          zip -r report-tech-logos.zip logos
-          test -s report-tech-logos.zip
-
-      - name: Upload logo ZIP
+      - name: Upload reel artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: report-tech-logos
-          path: report-tech-logos.zip
-          if-no-files-found: error
+          name: facebook-reel-capture
+          path: |
+            facebook-reel.mp4
+            facebook-page.png
+            candidates.txt
+          if-no-files-found: warn
           retention-days: 1
