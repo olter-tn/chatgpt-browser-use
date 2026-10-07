@@ -1,4 +1,4 @@
-name: Temporary Facebook reel capture
+name: Temporary Cardboard Adventures design audit
 
 on:
   push:
@@ -10,207 +10,147 @@ permissions:
   contents: read
 
 jobs:
-  capture:
+  audit:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Install browser tooling
+      - name: Install Playwright
         shell: bash
         run: |
           set -euxo pipefail
-          python3 -m pip install -U playwright requests
+          python3 -m pip install -U playwright
           python3 -m playwright install chromium
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
 
-      - name: Resolve and capture public reel
+      - name: Capture pages, screenshots, and computed styles
         shell: bash
-        env:
-          TARGET_URL: "https://www.facebook.com/share/v/19obzn32AE/"
         run: |
           set -euxo pipefail
-          cat > /tmp/grab_fb.py <<'PY'
-          import asyncio, html as htmlmod, json, os, re, sys
-          from urllib.parse import urlparse
-          import requests
+          mkdir -p site-audit
+          cat > /tmp/audit.py <<'PY'
+          import asyncio, json, os
           from playwright.async_api import async_playwright
 
-          TARGET = os.environ["TARGET_URL"]
-          KEYS = [
-              "browser_native_hd_url","playable_url_quality_hd","hd_src_no_ratelimit","hd_src",
-              "browser_native_sd_url","playable_url","sd_src_no_ratelimit","sd_src"
+          TARGETS = [
+              ("home", "https://www.cardboardadventures.co.uk/"),
+              ("patterns", "https://www.cardboardadventures.co.uk/patterns"),
+              ("collections", "https://www.cardboardadventures.co.uk/patterns-c"),
+              ("how-it-works", "https://www.cardboardadventures.co.uk/howdoesitwork"),
+              ("about", "https://www.cardboardadventures.co.uk/about"),
+              ("product-dragon", "https://www.cardboardadventures.co.uk/creations/create-a-dragon-head"),
+              ("shows", "https://www.cardboardadventures.co.uk/ourshows"),
+              ("contact", "https://www.cardboardadventures.co.uk/contact"),
+          ]
+          VIEWPORTS = [
+              ("desktop", {"width": 1440, "height": 1100}),
+              ("mobile", {"width": 390, "height": 844}),
           ]
 
-          def decode_fb(s):
-              s = htmlmod.unescape(str(s))
-              for _ in range(3):
-                  try:
-                      s = json.loads('"' + s.replace('\\', '\\\\').replace('"', '\\"') + '"')
-                  except Exception:
-                      break
-              return s.replace('\\u0025','%').replace('\\u0026','&').replace('\\/','/').strip()
+          JS = r"""
+          ({name,url,vpName,viewport}) => {
+            const visible = el => {
+              const r = el.getBoundingClientRect();
+              const s = getComputedStyle(el);
+              return r.width > 3 && r.height > 3 && s.display !== 'none' && s.visibility !== 'hidden';
+            };
+            const styleOf = el => {
+              const s = getComputedStyle(el), r = el.getBoundingClientRect();
+              return {
+                tag: el.tagName.toLowerCase(),
+                text: (el.innerText || el.getAttribute('aria-label') || el.getAttribute('alt') || '').trim().replace(/\s+/g,' ').slice(0,220),
+                className: typeof el.className === 'string' ? el.className.slice(0,220) : '',
+                id: el.id || '',
+                role: el.getAttribute('role'),
+                href: el.href || null,
+                src: el.currentSrc || el.src || null,
+                x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height),
+                display: s.display, position: s.position, overflow: s.overflow,
+                color: s.color, backgroundColor: s.backgroundColor,
+                backgroundImage: s.backgroundImage === 'none' ? 'none' : s.backgroundImage.slice(0,300),
+                fontFamily: s.fontFamily, fontSize: s.fontSize, fontWeight: s.fontWeight,
+                fontStyle: s.fontStyle, lineHeight: s.lineHeight, letterSpacing: s.letterSpacing,
+                textTransform: s.textTransform, textAlign: s.textAlign,
+                textDecoration: s.textDecorationLine,
+                border: s.border, borderRadius: s.borderRadius, boxShadow: s.boxShadow,
+                padding: s.padding, margin: s.margin, gap: s.gap,
+                opacity: s.opacity, cursor: s.cursor
+              };
+            };
 
-          def normalize_candidate(u):
-              if not u:
-                  return None
-              u = htmlmod.unescape(str(u))
-              u = u.replace('\\/','/').replace('\\u0026','&').replace('\\u0025','%')
-              try:
-                  u = bytes(u, 'utf-8').decode('unicode_escape')
-              except Exception:
-                  pass
-              u = u.strip('"\' ')
-              if u.startswith("https://") and "fbcdn.net" in u and ".mp4" in u:
-                  return u
-              return None
+            const selectors = [
+              'header','nav','main','section','footer',
+              'h1','h2','h3','h4','h5','h6','p','a','button','input','select','textarea',
+              '[role="button"]','[role="navigation"]','[role="banner"]','[role="contentinfo"]',
+              'img','svg'
+            ];
+            const sampled = [...document.querySelectorAll(selectors.join(','))]
+              .filter(visible).slice(0,1000).map(styleOf);
 
-          def harvest(text):
-              out = []
-              for key in KEYS:
-                  for m in re.finditer(r'"' + re.escape(key) + r'"\s*:\s*"([^"]+)"', text):
-                      u = normalize_candidate(m.group(1))
-                      if u: out.append(u)
-              pats = [
-                  r'https:\\/\\/[^"\'<>\s]*fbcdn\.net[^"\'<>\s]*?\.mp4[^"\'<>\s]*',
-                  r'https://[^"\'<>\s]*fbcdn\.net[^"\'<>\s]*?\.mp4[^"\'<>\s]*'
-              ]
-              for pat in pats:
-                  for x in re.findall(pat, text, flags=re.I):
-                      u = normalize_candidate(x)
-                      if u: out.append(u)
-              seen = []
-              for u in out:
-                  if u not in seen:
-                      seen.append(u)
-              return seen
+            const sectionSelectors = 'header,footer,section,main>div,[data-testid*="section"],[data-testid*="strip"]';
+            const sections = [...document.querySelectorAll(sectionSelectors)]
+              .filter(visible).slice(0,180).map(styleOf);
+
+            const root = getComputedStyle(document.documentElement);
+            const customProps = {};
+            for (const p of [...root]) if (p.startsWith('--')) customProps[p] = root.getPropertyValue(p).trim();
+
+            const resourceNames = performance.getEntriesByType('resource').map(x=>x.name);
+            const fontResources = resourceNames.filter(x => /\.(woff2?|ttf|otf)(\?|$)/i.test(x) || /fonts?/i.test(x)).slice(0,180);
+            const cssResources = resourceNames.filter(x => /\.css(\?|$)/i.test(x)).slice(0,200);
+
+            const body = getComputedStyle(document.body);
+            return {
+              name,url,vpName,viewport,title:document.title,
+              pageSize:{width:document.documentElement.scrollWidth,height:document.documentElement.scrollHeight},
+              bodyStyle:{color:body.color,backgroundColor:body.backgroundColor,fontFamily:body.fontFamily,fontSize:body.fontSize,lineHeight:body.lineHeight},
+              customProps,sampled,sections,fontResources,cssResources,
+              html: document.documentElement.outerHTML
+            };
+          }
+          """
 
           async def main():
-              candidates = []
-              network = []
               async with async_playwright() as p:
-                  browser = await p.chromium.launch(headless=True, args=[
-                      "--no-sandbox","--disable-blink-features=AutomationControlled",
-                      "--disable-dev-shm-usage"
-                  ])
-                  context = await browser.new_context(
-                      user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
-                      locale="en-US",
-                      viewport={"width":1280,"height":900}
-                  )
-                  page = await context.new_page()
-                  def on_response(resp):
-                      u = resp.url
-                      if "fbcdn.net" in u and ".mp4" in u:
-                          network.append(u)
-                  page.on("response", on_response)
-                  try:
-                      await page.goto(TARGET, wait_until="domcontentloaded", timeout=90000)
-                  except Exception as e:
-                      print("goto warning:", repr(e))
-                  await page.wait_for_timeout(8000)
-                  print("FINAL_URL", page.url)
-                  try:
-                      await page.screenshot(path="facebook-page.png", full_page=False)
-                  except Exception:
-                      pass
-                  text = await page.content()
-                  open("facebook-page.html","w",encoding="utf-8").write(text)
-                  candidates.extend(harvest(text))
-                  try:
-                      vals = await page.eval_on_selector_all("video", "els => els.flatMap(v => [v.src, v.currentSrc]).filter(Boolean)")
-                      for u in vals:
-                          n = normalize_candidate(u)
-                          if n: candidates.append(n)
-                  except Exception:
-                      pass
-                  try:
-                      resources = await page.evaluate("performance.getEntriesByType('resource').map(e=>e.name)")
-                      for u in resources:
-                          n = normalize_candidate(u)
-                          if n: candidates.append(n)
-                  except Exception:
-                      pass
-                  for u in network:
-                      n = normalize_candidate(u)
-                      if n: candidates.append(n)
-                  # Try starting the first visible video; the MP4 ticket is sometimes injected lazily.
-                  try:
-                      await page.evaluate("""() => { const v=document.querySelector('video'); if(v){v.muted=true; v.play().catch(()=>{});} }""")
-                      await page.wait_for_timeout(5000)
-                      text2 = await page.content()
-                      candidates.extend(harvest(text2))
-                      resources = await page.evaluate("performance.getEntriesByType('resource').map(e=>e.name)")
-                      for u in resources:
-                          n = normalize_candidate(u)
-                          if n: candidates.append(n)
-                  except Exception:
-                      pass
+                  browser = await p.chromium.launch(headless=True, args=["--no-sandbox"])
+                  compact_all = []
+                  for vp_name, viewport in VIEWPORTS:
+                      context = await browser.new_context(viewport=viewport, device_scale_factor=1)
+                      for name, url in TARGETS:
+                          page = await context.new_page()
+                          try:
+                              await page.goto(url, wait_until="domcontentloaded", timeout=90000)
+                          except Exception as e:
+                              print("goto warning", name, repr(e))
+                          await page.wait_for_timeout(5500)
+                          for txt in ["Accept", "Accept All", "Allow all", "Got it", "OK"]:
+                              try:
+                                  btn = page.get_by_role("button", name=txt)
+                                  if await btn.count():
+                                      await btn.first.click(timeout=700)
+                              except Exception:
+                                  pass
+                          await page.wait_for_timeout(800)
+                          await page.screenshot(path=f"site-audit/{name}-{vp_name}.png", full_page=True)
+                          data = await page.evaluate(JS, {"name":name,"url":url,"vpName":vp_name,"viewport":viewport})
+                          with open(f"site-audit/{name}-{vp_name}.json","w",encoding="utf-8") as f:
+                              json.dump(data,f,ensure_ascii=False,indent=2)
+                          compact = dict(data)
+                          compact.pop("html", None)
+                          compact_all.append(compact)
+                          await page.close()
+                      await context.close()
+                  with open("site-audit/summary.json","w",encoding="utf-8") as f:
+                      json.dump(compact_all,f,ensure_ascii=False,indent=2)
                   await browser.close()
-
-              uniq=[]
-              for u in candidates:
-                  if u not in uniq: uniq.append(u)
-              open("candidates.txt","w",encoding="utf-8").write("\n".join(uniq))
-              print("CANDIDATES", len(uniq))
-              if not uniq:
-                  raise SystemExit("No fbcdn MP4 candidate found")
-
-              ua="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"
-              for i,u in enumerate(uniq):
-                  print("TRY", i, u[:240])
-                  try:
-                      with requests.get(u, headers={"User-Agent":ua,"Referer":"https://www.facebook.com/"}, stream=True, timeout=60) as r:
-                          print("HTTP", r.status_code, r.headers.get("content-type"), r.headers.get("content-length"))
-                          if r.status_code != 200:
-                              continue
-                          with open("facebook-reel.mp4","wb") as f:
-                              for chunk in r.iter_content(1024*1024):
-                                  if chunk: f.write(chunk)
-                      if os.path.getsize("facebook-reel.mp4") > 100000:
-                          print("DOWNLOADED_BYTES", os.path.getsize("facebook-reel.mp4"))
-                          return
-                  except Exception as e:
-                      print("download error", repr(e))
-              raise SystemExit("Candidates found but none downloaded")
 
           asyncio.run(main())
           PY
-          python3 /tmp/grab_fb.py
-          ffprobe -v error -show_entries format=duration,size -show_entries stream=codec_name,codec_type,width,height -of json facebook-reel.mp4
-          ls -lh facebook-reel.mp4 facebook-page.png candidates.txt
+          python3 /tmp/audit.py
+          find site-audit -maxdepth 1 -type f -printf '%f %k KB\n' | sort
 
-      - name: Transcribe reel audio
-        shell: bash
-        run: |
-          set -euxo pipefail
-          python3 -m pip install -U faster-whisper 'av<19'
-          cat > /tmp/transcribe.py <<'PY'
-          import json
-          from faster_whisper import WhisperModel
-          model = WhisperModel("small.en", device="cpu", compute_type="int8")
-          segments, info = model.transcribe("facebook-reel.mp4", beam_size=5, vad_filter=True)
-          rows = []
-          with open("transcript.txt", "w", encoding="utf-8") as out:
-              for s in segments:
-                  line = f"[{s.start:7.2f} - {s.end:7.2f}] {s.text.strip()}"
-                  print(line)
-                  out.write(line + "\n")
-                  rows.append({"start": s.start, "end": s.end, "text": s.text.strip()})
-          with open("transcript.json", "w", encoding="utf-8") as j:
-              json.dump({"language": info.language, "duration": info.duration, "segments": rows}, j, ensure_ascii=False, indent=2)
-          PY
-          python3 /tmp/transcribe.py
-
-      - name: Upload reel artifact
-        if: always()
+      - name: Upload audit artifact
         uses: actions/upload-artifact@v4
         with:
-          name: facebook-reel-capture
-          path: |
-            facebook-reel.mp4
-            facebook-page.png
-            candidates.txt
-            transcript.txt
-            transcript.json
-          if-no-files-found: warn
+          name: cardboard-adventures-design-audit
+          path: site-audit/
+          if-no-files-found: error
           retention-days: 1
