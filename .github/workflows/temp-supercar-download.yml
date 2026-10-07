@@ -179,6 +179,28 @@ jobs:
           ffprobe -v error -show_entries format=duration,size -show_entries stream=codec_name,codec_type,width,height -of json facebook-reel.mp4
           ls -lh facebook-reel.mp4 facebook-page.png candidates.txt
 
+      - name: Transcribe reel audio
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 -m pip install -U faster-whisper
+          cat > /tmp/transcribe.py <<'PY'
+          import json
+          from faster_whisper import WhisperModel
+          model = WhisperModel("small.en", device="cpu", compute_type="int8")
+          segments, info = model.transcribe("facebook-reel.mp4", beam_size=5, vad_filter=True)
+          rows = []
+          with open("transcript.txt", "w", encoding="utf-8") as out:
+              for s in segments:
+                  line = f"[{s.start:7.2f} - {s.end:7.2f}] {s.text.strip()}"
+                  print(line)
+                  out.write(line + "\n")
+                  rows.append({"start": s.start, "end": s.end, "text": s.text.strip()})
+          with open("transcript.json", "w", encoding="utf-8") as j:
+              json.dump({"language": info.language, "duration": info.duration, "segments": rows}, j, ensure_ascii=False, indent=2)
+          PY
+          python3 /tmp/transcribe.py
+
       - name: Upload reel artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -188,5 +210,7 @@ jobs:
             facebook-reel.mp4
             facebook-page.png
             candidates.txt
+            transcript.txt
+            transcript.json
           if-no-files-found: warn
           retention-days: 1
