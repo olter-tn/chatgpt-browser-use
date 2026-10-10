@@ -1,0 +1,41 @@
+name: Temporary public Hebrew Bible corpus retrieval
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/temp-hebrew-corpus.yml'
+permissions:
+  contents: read
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Get fixed public research corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hebrew-source
+          for book in Gen Exod Lev Num Deut Ps; do
+            curl --fail --location --retry 3 --max-time 60 \
+              "https://raw.githubusercontent.com/openscriptures/morphhb/v.2.2/wlc/${book}.xml" \
+              -o "hebrew-source/${book}.xml"
+            test "$(wc -c < hebrew-source/${book}.xml)" -gt 100000
+          done
+          cat > hebrew-source/PROVENANCE.txt <<'EOF'
+          Text: Westminster Leningrad Codex Hebrew Bible, Open Scriptures morphhb v.2.2
+          Repo: https://github.com/openscriptures/morphhb
+          Version: https://github.com/openscriptures/morphhb/releases/tag/v.2.2
+          Underlying WLC text public domain; morphhb annotations CC BY 4.0.
+          Books: Genesis, Exodus, Leviticus, Numbers, Deuteronomy, Psalms
+          Files: unmodified OSIS XML from tag v.2.2.
+          EOF
+          sha256sum hebrew-source/*.xml > hebrew-source/SHA256SUMS.txt
+          cat hebrew-source/SHA256SUMS.txt
+      - name: Upload publicly licensed reference texts
+        uses: actions/upload-artifact@v4
+        with:
+          name: fixed-hebrew-corpus-v2-2
+          path: hebrew-source/
+          if-no-files-found: error
+          retention-days: 7
