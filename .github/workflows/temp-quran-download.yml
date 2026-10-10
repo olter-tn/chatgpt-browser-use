@@ -1,0 +1,100 @@
+name: Temporary Tanzil Quran Text Retrieval
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/temp-quran-download.yml'
+permissions:
+  contents: read
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Retrieve authoritative text and validate it
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p quran-text
+          cat > /tmp/get_quran.py <<'PY'
+          import hashlib,io,json,re,urllib.parse,urllib.request,zipfile
+          from pathlib import Path
+          src='https://tanzil.net/pub/download/index.php'
+          backup='https://raw.githubusercontent.com/dotquran/corpus/main/src/resources/uthmani.txt'
+          data={
+              'quranType':'uthmani','outType':'txt-2','marks':'true',
+              'sajdah':'true','rub':'true','tatweel':'true','agree':'true'}
+          origin=None
+          failures=[]
+          for source in ('official','mirror'):
+              try:
+                  if source=='official':
+                      req=urllib.request.Request(src,
+                          data=urllib.parse.urlencode(data).encode(),
+                          headers={'User-Agent':'Mozilla/5.0 Quran-dataset-research'})
+                  else:
+                      req=urllib.request.Request(backup,headers={'User-Agent':'Mozilla/5.0'})
+                  with urllib.request.urlopen(req,timeout=25) as r:
+                      raw=r.read()
+                      print(source,'content-type',r.headers.get('Content-Type'),
+                            'bytes',len(raw))
+                  if zipfile.is_zipfile(io.BytesIO(raw)):
+                      with zipfile.ZipFile(io.BytesIO(raw)) as z:
+                          names=[n for n in z.namelist() if n.endswith('.txt')]
+                          if len(names)!=1: raise ValueError('zip txt files:'+str(names))
+                          raw=z.read(names[0])
+                  s=raw.decode('utf-8-sig')
+                  data_lines=[x for x in s.splitlines()
+                              if re.match(r'^\d+\|\d+\|',x)]
+                  if len(data_lines)!=6236:
+                      raise ValueError('expected 6236 indexed verses; got '+str(len(data_lines))+' first:'+repr(s[:120]))
+                  pairs=[tuple(int(x) for x in t.split('|',2)[:2]) for t in data_lines]
+                  if len(set(pairs))!=6236 or pairs[0]!=(1,1) or pairs[-1]!=(114,6):
+                      raise ValueError('invalid verse sequence, endpoints or duplicates')
+                  suras=set(s for s,a in pairs)
+                  if suras != set(range(1,115)):
+                      raise ValueError('invalid surah set')
+                  for sn in range(1,115):
+                      seq=[a for s,a in pairs if s==sn]
+                      if seq!=list(range(1,len(seq)+1)):
+                          raise ValueError('non-consecutive verses in surah '+str(sn))
+                  if not data_lines[0].startswith('1|1|بِسْمِ'):
+                      raise ValueError('unexpected opening verse')
+                  if not any(s==9 and a==1 for s,a in pairs):
+                      raise ValueError('missing 9:1')
+                  origin=source
+                  break
+              except Exception as exc:
+                  print('source failed',source,repr(exc))
+                  failures.append(source+': '+repr(exc))
+          if origin is None: raise SystemExit('No source available: '+repr(failures))
+          out=Path('quran-text/quran-uthmani-tanzil-v1.1.txt')
+          out.write_bytes(raw)
+          digest=hashlib.sha256(raw).hexdigest()
+          manifest={'edition':'Tanzil Quran Text, Uthmani v1.1',
+                    'origin':src if origin=='official' else backup,
+                    'retrieval_method':origin,
+                    'numbered_verses':6236,'surahs':114,
+                    'format':'UTF-8 indexed text',
+                    'sha256':digest,'note':'Original unmodified source bytes.'}
+          Path('quran-text/PROVENANCE.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          notice=('Tanzil Quran Text (Uthmani, Version 1.1)\n'
+                  'Copyright (C) 2007-2024 Tanzil Project\n'
+                  'License: Creative Commons Attribution 3.0\n'
+                  'This copy of the Quran text is carefully produced, highly verified and continuously monitored by a group of specialists at Tanzil Project.\n'
+                  'Permission is granted to copy and distribute verbatim copies of this text, but CHANGING IT IS NOT ALLOWED.\n'
+                  'Please retain attribution and link to https://tanzil.net/.\n'
+                  'Please check updates at: https://tanzil.net/updates/\n'
+                  'Full terms: https://tanzil.net/docs/text_license\n')
+          Path('quran-text/ATTRIBUTION.txt').write_text(notice,encoding='utf-8')
+          print(json.dumps(manifest,ensure_ascii=False))
+          PY
+          python3 /tmp/get_quran.py
+          ls -lh quran-text/
+      - name: Upload Quran text dataset
+        uses: actions/upload-artifact@v4
+        with:
+          name: tanzil-uthmani-v1-1
+          path: quran-text/
+          retention-days: 7
+          if-no-files-found: error
