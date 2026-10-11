@@ -1,0 +1,41 @@
+name: Phase 7 Pinned Arabic Prose Comparators
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/temp-phase7-comparators.yml'
+permissions:
+  contents: read
+jobs:
+  retrieve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Download pinned original OpenITI sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p comparator-sources
+          curl --fail --location --retry 3 --max-time 90 'https://raw.githubusercontent.com/OpenITI/0275AH/44e1c36738a2bf5c14dafa232a6ae1891e6171cd/data/0255Jahiz/0255Jahiz.Bukhala/0255Jahiz.Bukhala.JK009201-ara1' -o 'comparator-sources/bukhala.txt'
+          test "$(wc -c < comparator-sources/bukhala.txt)" -gt 100000
+          curl --fail --location --retry 3 --max-time 90 'https://raw.githubusercontent.com/OpenITI/0150AH/f9a52b5bbc3a65673fc73fb32331e7f33811c480/data/0139IbnMuqaffac/0139IbnMuqaffac.KalilaWaDimna/0139IbnMuqaffac.KalilaWaDimna.LAL2022011101-ara2' -o 'comparator-sources/kalila.txt'
+          test "$(wc -c < comparator-sources/kalila.txt)" -gt 100000
+          curl --fail --location --retry 3 --max-time 90 'https://raw.githubusercontent.com/OpenITI/0525AH/6290621b58e063ed1aa47ffd0a6fc1630191e7cb/data/0516IbnCaliHariri/0516IbnCaliHariri.Maqamat/0516IbnCaliHariri.Maqamat.JK009202-ara1' -o 'comparator-sources/maqamat.txt'
+          test "$(wc -c < comparator-sources/maqamat.txt)" -gt 100000
+          cat > comparator-sources/MANIFEST.txt <<'EOF'
+bukhala|OpenITI/0275AH|44e1c36738a2bf5c14dafa232a6ae1891e6171cd|data/0255Jahiz/0255Jahiz.Bukhala/0255Jahiz.Bukhala.JK009201-ara1
+kalila|OpenITI/0150AH|f9a52b5bbc3a65673fc73fb32331e7f33811c480|data/0139IbnMuqaffac/0139IbnMuqaffac.KalilaWaDimna/0139IbnMuqaffac.KalilaWaDimna.LAL2022011101-ara2
+maqamat|OpenITI/0525AH|6290621b58e063ed1aa47ffd0a6fc1630191e7cb|data/0516IbnCaliHariri/0516IbnCaliHariri.Maqamat/0516IbnCaliHariri.Maqamat.JK009202-ara1
+          Source: OpenITI project (https://openiti.org).
+          OpenITI corpus edition licenses generally CC BY-NC-SA 4.0; retain proper citations.
+          These are exploratory comparison texts from digitized modern editions, not original manuscripts.
+          EOF
+          sha256sum comparator-sources/*.txt > comparator-sources/SHA256SUMS.txt
+          wc -c comparator-sources/*.txt
+      - name: Upload research sources
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase7-classical-arabic-originals
+          path: comparator-sources/
+          retention-days: 7
+          if-no-files-found: error
