@@ -7,13 +7,14 @@ on:
       - '.github/workflows/meta-ad-library-tunisia-audit.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   meta-audit:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - uses: actions/checkout@v4
       - name: Install Playwright
         shell: bash
         run: |
@@ -77,6 +78,19 @@ jobs:
             print(r["query"],"status",r.get("http_status"),"title",r.get("title"),"access_limited",r.get("access_limited"),"error",r.get("error"))
             print(r.get("text","")[:2500])
           PY
+
+      - name: Publish concise findings to repository
+        shell: bash
+        run: |
+          mkdir -p meta-ad-library-latest
+          cp meta-audit/results.json meta-ad-library-latest/results.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add meta-ad-library-latest/results.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'Add public Tunisia Meta Ad Library search observations'
+            git push
+          fi
 
       - name: Save public ad library verification evidence
         uses: actions/upload-artifact@v4
