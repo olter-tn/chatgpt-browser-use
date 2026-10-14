@@ -31,11 +31,13 @@ jobs:
           from playwright.async_api import async_playwright
 
           TERMS = [
-            "face tracking",
+            "support suivi facial",
+            "suivi facial",
+            "gimbal face tracking",
+            "support visage 360",
+            "support intelligent rotation",
+            "auto face tracking",
             "suivi automatique visage",
-            "support 360",
-            "trépied suivi visage",
-            "support téléphone suivi visage",
           ]
           async def main():
             records = []
@@ -53,7 +55,7 @@ jobs:
                   rec["http_status"] = resp.status if resp else None
                   rec["final_url"] = page.url
                   rec["title"] = await page.title()
-                  rec["text"] = (await page.locator("body").inner_text(timeout=10000))[:24000]
+                  rec["text"] = (await page.locator("body").inner_text(timeout=10000))[:60000]
                   rec["meta_ad_library_elements"] = await page.locator("[data-testid*=ad], [aria-label*=publicit], [aria-label*=advert]").count()
                   rec["links"] = await page.locator("a[href]").evaluate_all("(els) => els.slice(0,70).map(x=>({text:x.innerText.slice(0,90),href:x.href}))")
                   await page.screenshot(path=f"meta-audit/{i+1}-screenshot.png",full_page=True,timeout=30000)
