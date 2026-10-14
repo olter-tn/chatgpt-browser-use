@@ -1,0 +1,87 @@
+name: Public Meta Ad Library Tunisia audit
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/meta-ad-library-tunisia-audit.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  meta-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Install Playwright
+        shell: bash
+        run: |
+          python3 -m pip install playwright
+          python3 -m playwright install --with-deps chromium
+
+      - name: Test public Meta Ad Library queries in Tunisia
+        shell: bash
+        run: |
+          mkdir -p meta-audit
+          cat > /tmp/meta_audit.py <<'PY'
+          import asyncio, json, re
+          from urllib.parse import urlencode
+          from playwright.async_api import async_playwright
+
+          TERMS = [
+            "face tracking",
+            "suivi automatique visage",
+            "support 360",
+            "trépied suivi visage",
+            "support téléphone suivi visage",
+          ]
+          async def main():
+            records = []
+            async with async_playwright() as p:
+              browser = await p.chromium.launch(headless=True, args=["--no-sandbox"])
+              context = await browser.new_context(locale="fr-FR", viewport={"width": 1365, "height": 900})
+              for i, term in enumerate(TERMS):
+                params = {"active_status":"active","ad_type":"all","country":"TN","q":term,"search_type":"keyword_unordered","media_type":"all"}
+                url = "https://www.facebook.com/ads/library/?" + urlencode(params)
+                page = await context.new_page()
+                rec = {"query":term,"url":url}
+                try:
+                  resp = await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+                  await page.wait_for_timeout(10000)
+                  rec["http_status"] = resp.status if resp else None
+                  rec["final_url"] = page.url
+                  rec["title"] = await page.title()
+                  rec["text"] = (await page.locator("body").inner_text(timeout=10000))[:24000]
+                  rec["meta_ad_library_elements"] = await page.locator("[data-testid*=ad], [aria-label*=publicit], [aria-label*=advert]").count()
+                  rec["links"] = await page.locator("a[href]").evaluate_all("(els) => els.slice(0,70).map(x=>({text:x.innerText.slice(0,90),href:x.href}))")
+                  await page.screenshot(path=f"meta-audit/{i+1}-screenshot.png",full_page=True,timeout=30000)
+                  with open(f"meta-audit/{i+1}-page.html", "w") as f:
+                    f.write((await page.content())[:300000])
+                  rec["access_limited"] = any(w in rec["text"].lower() for w in ["log in", "connectez-vous", "se connecter", "connexion pour", "unusual activity", "verify you're human", "captcha", "access denied"])
+                except Exception as e:
+                  rec["error"] = str(e)
+                  try: await page.screenshot(path=f"meta-audit/{i+1}-error.png",timeout=15000)
+                  except Exception: pass
+                records.append(rec)
+                await page.close()
+              with open("meta-audit/results.json","w",encoding="utf-8") as f:
+                json.dump(records,f,ensure_ascii=False,indent=2)
+              await browser.close()
+          asyncio.run(main())
+          PY
+          python3 /tmp/meta_audit.py
+          python3 - <<'PY'
+          import json
+          for r in json.load(open("meta-audit/results.json")):
+            print(r["query"],"status",r.get("http_status"),"title",r.get("title"),"access_limited",r.get("access_limited"),"error",r.get("error"))
+            print(r.get("text","")[:2500])
+          PY
+
+      - name: Save public ad library verification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: meta-ad-library-tunisia-public-audit
+          path: meta-audit/
+          if-no-files-found: error
+          retention-days: 2
