@@ -8,7 +8,7 @@ if [[ "$(uname -s)" != "Linux" || "$(uname -m)" != "x86_64" ]]; then
   echo "This installer supports Linux x86_64 only." >&2
   exit 1
 fi
-if ! node --version | grep -Eq '^v(2[2-9]|[3-9][0-9])\\.'; then
+if (( $(node -p 'Number(process.versions.node.split(".")[0])') < 22 )); then
   echo "Node.js 22+ is required for HyperFrames." >&2
   exit 1
 fi
