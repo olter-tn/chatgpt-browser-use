@@ -1,0 +1,44 @@
+name: Install and verify video editing tools
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'scripts/install-video-tools.sh'
+      - '.github/workflows/install-video-tools.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node.js for HyperFrames
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install all four tools and verify CLIs
+        shell: bash
+        run: bash scripts/install-video-tools.sh
+
+      - name: Summarize install results
+        if: success()
+        shell: bash
+        run: |
+          echo '## Video tool installation verified' >> "$GITHUB_STEP_SUMMARY"
+          echo '- FFmpeg installed and version checked' >> "$GITHUB_STEP_SUMMARY"
+          echo '- faster-whisper installed in .venv-video-tools and imported' >> "$GITHUB_STEP_SUMMARY"
+          echo '- Auto-Editor official binary installed and version checked' >> "$GITHUB_STEP_SUMMARY"
+          echo '- HyperFrames CLI installed and version checked' >> "$GITHUB_STEP_SUMMARY"
