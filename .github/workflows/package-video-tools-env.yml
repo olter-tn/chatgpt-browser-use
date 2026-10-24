@@ -1,0 +1,69 @@
+name: Package video tools for ChatGPT environment
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/package-video-tools-env.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Collect Linux x86_64 Python wheels
+        run: |
+          set -euxo pipefail
+          mkdir -p out/wheels
+          python -m pip download --only-binary=:all: --dest out/wheels faster-whisper
+          du -sh out/wheels
+      - name: Download official Linux x86_64 Auto-Editor
+        run: |
+          set -euxo pipefail
+          mkdir -p out/auto-editor
+          curl -fLsS --retry 3 --retry-all-errors \
+            'https://github.com/WyattBlue/auto-editor/releases/download/31.7.2/auto-editor-linux-x86_64' \
+            -o out/auto-editor/auto-editor
+          chmod +x out/auto-editor/auto-editor
+          out/auto-editor/auto-editor --version
+          sha256sum out/auto-editor/auto-editor > out/auto-editor/sha256.txt
+      - name: Install and pack HyperFrames for Linux x86_64
+        run: |
+          set -euxo pipefail
+          mkdir -p out/hyperframes-package
+          npm install --prefix "$PWD/out/hyperframes-package" --omit=dev --no-audit --no-fund hyperframes
+          test -f out/hyperframes-package/node_modules/hyperframes/package.json
+          tar -czf out/hyperframes.tar.gz -C out/hyperframes-package node_modules
+          du -h out/hyperframes.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: local-video-python-wheels
+          path: out/wheels/
+          retention-days: 1
+          if-no-files-found: error
+          compression-level: 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: local-video-auto-editor
+          path: out/auto-editor/
+          retention-days: 1
+          if-no-files-found: error
+          compression-level: 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: local-video-hyperframes
+          path: out/hyperframes.tar.gz
+          retention-days: 1
+          if-no-files-found: error
+          compression-level: 0
