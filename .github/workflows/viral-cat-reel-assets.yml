@@ -4,7 +4,6 @@ on:
     branches: [master]
     paths:
       - '.github/workflows/viral-cat-reel-assets.yml'
-  workflow_dispatch:
 permissions:
   contents: read
 jobs:
@@ -12,67 +11,70 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Download Mixkit Free License clips
+      - name: Download Pexels free stock cat footage
         shell: bash
         run: |
           set -euxo pipefail
           mkdir -p footage
-          python3 - <<'PY'
-          from urllib.request import Request, urlopen
-          import time, os, json
-          clips = {
-            'playing':'mixkit-pet-owner-playing-with-a-cute-cat-1779',
-            'affection':'mixkit-petting-a-cute-cat-close-up-1778',
-            'suspicious':'mixkit-black-cat-with-yellow-eyes-1539',
-            'blueeyes':'mixkit-white-cat-with-blue-eyes-1545',
-            'nap':'mixkit-cat-taking-a-nap-4102',
-            'leap':'mixkit-white-cat-lying-among-the-grasses-seen-up-close-22732',
-            'food':'mixkit-two-cats-eating-1547',
-            'hat':'mixkit-siamese-cat-inside-a-hat-4103',
-            'white':'mixkit-a-white-cat-sits-in-front-of-a-white-wall-1535'
-          }
-          result=[]
-          for name, slug in clips.items():
-              urls=[f"https://assets.mixkit.co/videos/download/{slug}.mp4",
-                    f"https://assets.mixkit.co/videos/preview/{slug}-large.mp4"]
-              for u in urls:
+          cat > /tmp/download.py <<'PY'
+          import re, json, time, urllib.request
+          cats=[
+            ("cute",4884063,30,"vertical"),
+            ("play",6864989,25,"vertical"),
+            ("bond",35701532,30,"vertical"),
+            ("explore",14863819,25,"vertical"),
+            ("sleep",38812017,30,"vertical"),
+            ("rest",17980371,60,"vertical"),
+            ("toy",6864992,25,"horizontal"),
+            ("twocats",10295142,30,"horizontal"),
+            ("pet",855029,30,"horizontal")
+          ]
+          results=[]
+          for name,vid,fps,mode in cats:
+              urls=[]
+              try:
+                  url=f"https://www.pexels.com/video/{vid}/"
+                  request=urllib.request.Request(url,headers={"User-Agent":"Mozilla/5.0"})
+                  with urllib.request.urlopen(request,timeout=17) as r: html=r.read().decode('utf8','ignore')
+                  urls=list(dict.fromkeys(re.findall(r'https?:\\?/\\?/videos\\?.pexels\\?.com\\?/video-files\\?/[^"\\\s<>]+?\\.mp4',html)))
+                  urls=[u.replace("\\/","/").replace("\\","") for u in urls]
+                  print("html urls",vid,len(urls), flush=True)
+              except Exception as e: print("html error",vid,str(e)[:120],flush=True)
+              ar=[(1080,1920),(540,960),(360,640),(720,1280)] if mode=="vertical" else [(1920,1080),(960,540),(640,360)]
+              for fw,fh in ar:
+                  for qual in ["hd","sd"]:
+                      urls.append(f"https://videos.pexels.com/video-files/{vid}/{vid}-{qual}_{fw}_{fh}_{fps}fps.mp4")
+              got=False
+              for url in urls[:23]:
                   try:
-                      req=Request(u, headers={"User-Agent":"Mozilla/5.0 (compatible; VideoEditingResearch/1.0)"})
-                      with urlopen(req, timeout=40) as resp: data=resp.read()
-                      if b'ftyp' not in data[:64] or len(data)<150000:
-                          raise RuntimeError("Not MP4: "+str(len(data)))
-                      with open(f"footage/{name}.mp4",'wb') as f:f.write(data)
-                      result.append({"clip":name,"source":f"https://mixkit.co/free-stock-video/{slug[7:]}/","license":"Mixkit Stock Video Free License"})
-                      print("Downloaded",name,len(data),flush=True)
+                      req=urllib.request.Request(url,headers={"User-Agent":"Mozilla/5.0","Referer":"https://www.pexels.com/"})
+                      with urllib.request.urlopen(req,timeout=15) as r:
+                          blob=r.read(26000000)
+                      if b'ftyp' not in blob[:64] or len(blob)<100000:
+                          raise ValueError("not MP4")
+                      open(f"footage/{name}.mp4","wb").write(blob)
+                      results.append({"file":name+".mp4","source":f"https://www.pexels.com/video/{vid}/","license":"Pexels free license"})
+                      print("SUCCESS",name,len(blob),url,flush=True)
+                      got=True
                       break
                   except Exception as e:
-                      print("Failed",name,str(e)[:150],flush=True)
-                  time.sleep(0.6)
-          with open("footage/sources.json","w") as f: json.dump(result,f,indent=2)
-          if len(result)<5:raise RuntimeError(f"Only {len(result)} videos obtained")
+                      print("miss",name,str(e)[:65],flush=True)
+              if not got: print("no source",name,flush=True)
+          with open("footage/sources.json","w") as f:json.dump(results,f,indent=2)
+          print("Total",len(results),flush=True)
+          if len(results)<3: raise RuntimeError("Insufficient footage")
           PY
-      - name: Generate expressive narration
-        shell: bash
+          python /tmp/download.py
+      - name: Narration with neutral voice
         run: |
           set -euxo pipefail
+          python3 -m pip install --quiet gTTS
           mkdir -p audio
-          python3 -m pip install --quiet edge-tts gTTS
           python3 - <<'PY'
-          import asyncio, os
-          script="Cats are terrible roommates. They attack everything, judge you, and steal your favorite spot. But then... they look at you like this. And honestly? We would give them the whole house."
-          async def main():
-              import edge_tts
-              comm=edge_tts.Communicate(text=script,voice="en-US-AvaMultilingualNeural",rate="+14%")
-              await comm.save("audio/voice.mp3")
-          try:
-              asyncio.run(main())
-              print("edge-tts neural voice ready")
-          except Exception as e:
-              print("edge-tts failed, falling back to gTTS",str(e))
-              from gtts import gTTS
-              gTTS(script,lang='en').save("audio/voice.mp3")
-          print("voice bytes",os.path.getsize("audio/voice.mp3"))
-          with open("audio/voice_script.txt","w") as f:f.write(script)
+          from gtts import gTTS
+          text="Cats are terrible roommates. They attack everything. They judge you. And they steal your favorite spot. But then? They look at you like this. And you forgive absolutely everything."
+          gTTS(text,lang="en",slow=False).save("audio/voice.mp3")
+          with open("audio/script.txt","w") as f:f.write(text)
           PY
       - uses: actions/upload-artifact@v4
         with:
