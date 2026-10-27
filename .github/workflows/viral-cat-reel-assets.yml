@@ -1,0 +1,85 @@
+name: Source licensed moving cat footage and narration
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/viral-cat-reel-assets.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Download Mixkit Free License clips
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p footage
+          python3 - <<'PY'
+          from urllib.request import Request, urlopen
+          import time, os, json
+          clips = {
+            'playing':'mixkit-pet-owner-playing-with-a-cute-cat-1779',
+            'affection':'mixkit-petting-a-cute-cat-close-up-1778',
+            'suspicious':'mixkit-black-cat-with-yellow-eyes-1539',
+            'blueeyes':'mixkit-white-cat-with-blue-eyes-1545',
+            'nap':'mixkit-cat-taking-a-nap-4102',
+            'leap':'mixkit-white-cat-lying-among-the-grasses-seen-up-close-22732',
+            'food':'mixkit-two-cats-eating-1547',
+            'hat':'mixkit-siamese-cat-inside-a-hat-4103',
+            'white':'mixkit-a-white-cat-sits-in-front-of-a-white-wall-1535'
+          }
+          result=[]
+          for name, slug in clips.items():
+              urls=[f"https://assets.mixkit.co/videos/download/{slug}.mp4",
+                    f"https://assets.mixkit.co/videos/preview/{slug}-large.mp4"]
+              for u in urls:
+                  try:
+                      req=Request(u, headers={"User-Agent":"Mozilla/5.0 (compatible; VideoEditingResearch/1.0)"})
+                      with urlopen(req, timeout=40) as resp: data=resp.read()
+                      if b'ftyp' not in data[:64] or len(data)<150000:
+                          raise RuntimeError("Not MP4: "+str(len(data)))
+                      with open(f"footage/{name}.mp4",'wb') as f:f.write(data)
+                      result.append({"clip":name,"source":f"https://mixkit.co/free-stock-video/{slug[7:]}/","license":"Mixkit Stock Video Free License"})
+                      print("Downloaded",name,len(data),flush=True)
+                      break
+                  except Exception as e:
+                      print("Failed",name,str(e)[:150],flush=True)
+                  time.sleep(0.6)
+          with open("footage/sources.json","w") as f: json.dump(result,f,indent=2)
+          if len(result)<5:raise RuntimeError(f"Only {len(result)} videos obtained")
+          PY
+      - name: Generate expressive narration
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p audio
+          python3 -m pip install --quiet edge-tts gTTS
+          python3 - <<'PY'
+          import asyncio, os
+          script="Cats are terrible roommates. They attack everything, judge you, and steal your favorite spot. But then... they look at you like this. And honestly? We would give them the whole house."
+          async def main():
+              import edge_tts
+              comm=edge_tts.Communicate(text=script,voice="en-US-AvaMultilingualNeural",rate="+14%")
+              await comm.save("audio/voice.mp3")
+          try:
+              asyncio.run(main())
+              print("edge-tts neural voice ready")
+          except Exception as e:
+              print("edge-tts failed, falling back to gTTS",str(e))
+              from gtts import gTTS
+              gTTS(script,lang='en').save("audio/voice.mp3")
+          print("voice bytes",os.path.getsize("audio/voice.mp3"))
+          with open("audio/voice_script.txt","w") as f:f.write(script)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: viral-cats-motion-assets
+          path: |
+            footage/
+            audio/
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
