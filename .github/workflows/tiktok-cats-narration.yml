@@ -1,0 +1,37 @@
+name: TikTok cats fresh narration
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/tiktok-cats-narration.yml'
+permissions:
+  contents: read
+jobs:
+  narrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Generate voiceover
+        shell: bash
+        run: |
+          python3 -m pip install --quiet gTTS
+          mkdir -p output
+          python3 - <<'PY'
+          from gtts import gTTS
+          script = (
+          "Cats are secretly geniuses at stealing our hearts. "
+          "First? That adorable face. "
+          "Then? Absolutely unhinged zoomies. "
+          "And when they finally fall asleep next to you? "
+          "Game over. You're obsessed. "
+          "Be honest. Who owns your house?"
+          )
+          gTTS(script,lang="en",slow=False).save("output/cats_tiktok_voice.mp3")
+          print(script)
+          PY
+          ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1 output/cats_tiktok_voice.mp3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cats-tiktok-voice
+          path: output/
+          retention-days: 1
