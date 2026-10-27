@@ -29,7 +29,7 @@ jobs:
           gTTS(script,lang="en",slow=False).save("output/cats_tiktok_voice.mp3")
           print(script)
           PY
-          ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1 output/cats_tiktok_voice.mp3
+          ls -lh output/cats_tiktok_voice.mp3
       - uses: actions/upload-artifact@v4
         with:
           name: cats-tiktok-voice
