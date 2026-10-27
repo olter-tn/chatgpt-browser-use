@@ -1,0 +1,44 @@
+name: Collect free-license cat portraits for reel
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/cat-reel-pexels.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Fetch Pexels cat stills
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p assets
+          python - <<'PY'
+          from urllib.request import urlopen,Request
+          import json, time
+          ids=[1056251,37517518,35910107,33387199,7297670,32595483,127028]
+          successes=[]
+          for i,id in enumerate(ids):
+              url=f"https://images.pexels.com/photos/{id}/pexels-photo-{id}.jpeg?auto=compress&cs=tinysrgb&w=1200&q=85"
+              try:
+                  with urlopen(Request(url,headers={"User-Agent":"Mozilla/5.0"}),timeout=25) as r: blob=r.read()
+                  if blob[:3]!=b"\xff\xd8\xff":raise ValueError("Not JPEG")
+                  file=f"pexels_{id}.jpg"
+                  open("assets/"+file,"wb").write(blob)
+                  successes.append({"file":file,"url":f"https://www.pexels.com/photo/{id}/","license":"Pexels free license"})
+                  print("ok",id,len(blob),flush=True)
+              except Exception as e:
+                  print("fail",id,str(e)[:250],flush=True)
+          with open("assets/pexels_credits.json","w") as f:json.dump(successes,f,indent=2)
+          if len(successes)<2: raise RuntimeError("Not enough images")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cat-reel-pexels
+          path: assets/
+          retention-days: 1
+          compression-level: 0
