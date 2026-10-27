@@ -1,0 +1,83 @@
+name: Download CC0 cat reel assets
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/cat-reel-assets.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  assets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Download verified Commons CC0 cat images
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p assets
+          cat > /tmp/get_cats.py <<'PY'
+          import hashlib, urllib.parse, urllib.request, os, time, json
+          sources = [
+            ("cat01.jpg", "Baby_cute_cat.jpg"),
+            ("cat02.jpg", "Kittens_playing_together.jpg"),
+            ("cat03.jpg", "Grey_cat_looking_up_at_camera.jpg"),
+            ("cat04.jpg", "Fat_Cat_Sleeping.jpg"),
+            ("cat05.jpg", "CatAndKitten.jpg"),
+            ("cat06.jpg", "Black_cat_staring_at_the_camera_(2023-07-16).jpg"),
+          ]
+          result = []
+          for out, filename in sources:
+              b = hashlib.md5(filename.encode("utf-8")).hexdigest()
+              path = f"{b[0]}/{b[:2]}/{urllib.parse.quote(filename)}"
+              urls = [
+                 f"https://upload.wikimedia.org/wikipedia/commons/thumb/{path}/960px-{urllib.parse.quote(filename)}",
+                 f"https://upload.wikimedia.org/wikipedia/commons/{path}",
+              ]
+              for url in urls:
+                  try:
+                      req = urllib.request.Request(url, headers={"User-Agent":"CatReelMaker/1.0 (artwork research; contact github.com/olter-tn/chatgpt-browser-use)"})
+                      with urllib.request.urlopen(req, timeout=40) as r:
+                          blob = r.read()
+                      if len(blob)<5000 or blob[:3]!=b"\xff\xd8\xff":
+                          raise ValueError("not JPEG")
+                      open("assets/"+out,"wb").write(blob)
+                      result.append({"file":out,"source":filename,"url":"https://commons.wikimedia.org/wiki/File:"+urllib.parse.quote(filename),"license":"CC0"})
+                      print(out,len(blob),"OK",flush=True)
+                      break
+                  except Exception as e:
+                      print("download failed",out,str(e)[:300],flush=True)
+                      time.sleep(1)
+              else:
+                  print("Skipping failed image",filename,flush=True)
+          if len(result)<4:
+              raise RuntimeError("Fewer than four cat images downloaded")
+          with open("assets/credits.json","w") as f: json.dump(result,f,indent=2)
+          PY
+          python /tmp/get_cats.py
+          ls -lh assets
+      - name: Voiceover with gTTS
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python -m pip install -q gTTS
+          python - <<'PY'
+          from gtts import gTTS
+          text = "Why does everyone love cats? Their little faces make us smile. Their silly chaos keeps life fun. And when they curl up beside us, it feels like home. That's the magic of cats."
+          try:
+              gTTS(text,lang="en",slow=False).save("assets/voice.mp3")
+              print("Voiceover generated")
+          except Exception as e:
+              print("Voiceover unavailable:",e)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cat-reel-assets
+          path: assets/
+          retention-days: 1
+          if-no-files-found: error
+          compression-level: 0
