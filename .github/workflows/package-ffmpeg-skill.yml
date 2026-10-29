@@ -1,0 +1,39 @@
+name: Package ffmpeg-skill for local ChatGPT installation
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/package-ffmpeg-skill.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download pinned source archive and package runtime files
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --retry-all-errors \
+            https://codeload.github.com/kajisho5/ffmpeg-skill/tar.gz/1ae1bdf1ca0adbb1606fbca493948b1bbb2f83ff \
+            -o ffmpeg-skill-source.tar.gz
+          mkdir -p source output/ffmpeg-skill
+          tar -xzf ffmpeg-skill-source.tar.gz -C source --strip-components=1
+          test -f source/SKILL.md
+          test -f source/scripts/probe.py
+          test -f source/scripts/_contract.py
+          for item in SKILL.md scripts templates mcp references README.md LICENSE; do
+            cp -R "source/$item" output/ffmpeg-skill/
+          done
+          printf '%s\n' '1ae1bdf1ca0adbb1606fbca493948b1bbb2f83ff' > output/ffmpeg-skill/SOURCE_COMMIT
+          ls -la output/ffmpeg-skill
+      - name: Upload portable skill files
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-skill-portable-20261028
+          path: output/
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
