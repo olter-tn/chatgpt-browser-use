@@ -53,12 +53,7 @@ jobs:
           GHIDRA_SHA256="2c2cd776db3c1f6a097ba418922378ac3649cadd5e844a6f5f088ae628a7be67"
           curl -fL --retry 3 --retry-delay 2 "$GHIDRA_URL" -o "$RUNNER_TEMP/ghidra.zip"
           echo "$GHIDRA_SHA256  $RUNNER_TEMP/ghidra.zip" | sha256sum --check --status
-
-          mkdir "$RUNNER_TEMP/ghidra-extract"
-          unzip -q "$RUNNER_TEMP/ghidra.zip" -d "$RUNNER_TEMP/ghidra-extract"
-          GHIDRA_DIR="$(find "$RUNNER_TEMP/ghidra-extract" -maxdepth 2 -type f -name ghidraRun -printf '%h\n' | head -n 1)"
-          test -n "$GHIDRA_DIR"
-          mv "$GHIDRA_DIR" "$BUNDLE/ghidra"
+          split -b 400M --numeric-suffixes=0 --suffix-length=2 "$RUNNER_TEMP/ghidra.zip" "$BUNDLE/ghidra-part-"
 
           NODE_EXE="$(readlink -f "$(command -v node)")"
           NODE_ROOT="$(dirname "$(dirname "$NODE_EXE")")"
@@ -80,16 +75,76 @@ jobs:
           printf 'Node.js: %s\n' "$("$BUNDLE/node/bin/node" --version)" >> "$BUNDLE/INSTALL-MANIFEST.txt"
           printf 'Java: %s\n' "$("$BUNDLE/jdk/bin/java" -version 2>&1 | head -n 1)" >> "$BUNDLE/INSTALL-MANIFEST.txt"
 
-          test -x "$BUNDLE/ghidra/support/analyzeHeadless"
           "$BUNDLE/node/bin/node" "$BUNDLE/rea-runtime/node_modules/rea-agents/scripts/rea.mjs" --version
           "$BUNDLE/jdk/bin/java" -version
+          du -sh "$BUNDLE"/*
 
-      - name: Upload verified toolchain
+      - name: Upload Ghidra archive part 00
         if: steps.guard.outputs.proceed == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ghidra-rea-toolchain
-          path: ${{ runner.temp }}/rea-ghidra-bundle
+          name: ghidra-part-00
+          path: ${{ runner.temp }}/rea-ghidra-bundle/ghidra-part-00
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+      - name: Upload Ghidra archive part 01
+        if: steps.guard.outputs.proceed == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ghidra-part-01
+          path: ${{ runner.temp }}/rea-ghidra-bundle/ghidra-part-01
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+      - name: Upload Java runtime
+        if: steps.guard.outputs.proceed == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ghidra-jdk25
+          path: ${{ runner.temp }}/rea-ghidra-bundle/jdk
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+      - name: Upload Node runtime
+        if: steps.guard.outputs.proceed == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rea-node24
+          path: ${{ runner.temp }}/rea-ghidra-bundle/node
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+      - name: Upload REA package installation
+        if: steps.guard.outputs.proceed == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rea-runtime
+          path: ${{ runner.temp }}/rea-ghidra-bundle/rea-runtime
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+      - name: Upload REA repository source
+        if: steps.guard.outputs.proceed == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rea-source
+          path: ${{ runner.temp }}/rea-ghidra-bundle/rea-source
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+      - name: Upload installation manifest
+        if: steps.guard.outputs.proceed == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rea-ghidra-manifest
+          path: ${{ runner.temp }}/rea-ghidra-bundle/INSTALL-MANIFEST.txt
           if-no-files-found: error
           retention-days: 1
           compression-level: 0
