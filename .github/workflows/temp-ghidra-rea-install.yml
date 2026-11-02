@@ -1,0 +1,95 @@
+name: Temporary Ghidra and REA bootstrap
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/temp-ghidra-rea-install.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout transfer repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Guard temporary workflow deletion
+        id: guard
+        shell: bash
+        run: |
+          if [[ -f .github/workflows/temp-ghidra-rea-install.yml ]]; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            echo "Cleanup commit detected; skipping."
+          fi
+
+      - name: Set up Node.js
+        if: steps.guard.outputs.proceed == 'true'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.22.1'
+
+      - name: Set up JDK
+        if: steps.guard.outputs.proceed == 'true'
+        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Download and verify Ghidra; install REA
+        if: steps.guard.outputs.proceed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUNDLE="$RUNNER_TEMP/rea-ghidra-bundle"
+          mkdir -p "$BUNDLE"
+
+          GHIDRA_URL="https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.2_build/ghidra_12.2_PUBLIC_20261016.zip"
+          GHIDRA_SHA256="2c2cd776db3c1f6a097ba418922378ac3649cadd5e844a6f5f088ae628a7be67"
+          curl -fL --retry 3 --retry-delay 2 "$GHIDRA_URL" -o "$RUNNER_TEMP/ghidra.zip"
+          echo "$GHIDRA_SHA256  $RUNNER_TEMP/ghidra.zip" | sha256sum --check --status
+
+          mkdir "$RUNNER_TEMP/ghidra-extract"
+          unzip -q "$RUNNER_TEMP/ghidra.zip" -d "$RUNNER_TEMP/ghidra-extract"
+          GHIDRA_DIR="$(find "$RUNNER_TEMP/ghidra-extract" -maxdepth 2 -type f -name ghidraRun -printf '%h\n' | head -n 1)"
+          test -n "$GHIDRA_DIR"
+          mv "$GHIDRA_DIR" "$BUNDLE/ghidra"
+
+          NODE_EXE="$(readlink -f "$(command -v node)")"
+          NODE_ROOT="$(dirname "$(dirname "$NODE_EXE")")"
+          cp -a "$NODE_ROOT" "$BUNDLE/node"
+          cp -a "$JAVA_HOME" "$BUNDLE/jdk"
+
+          git clone --depth 1 https://github.com/morluto/rea.git "$BUNDLE/rea-source"
+          REA_COMMIT="$(git -C "$BUNDLE/rea-source" rev-parse HEAD)"
+          REA_VERSION="$(node -p "require('$BUNDLE/rea-source/package.json').version")"
+          npm view "rea-agents@$REA_VERSION" version >/dev/null
+          npm install --prefix "$BUNDLE/rea-runtime" --no-audit --no-fund "rea-agents@$REA_VERSION"
+          rm -rf "$BUNDLE/rea-source/.git"
+
+          printf 'Ghidra release: Ghidra 12.2 (2026-10-16)\n' > "$BUNDLE/INSTALL-MANIFEST.txt"
+          printf 'Ghidra SHA-256: %s\n' "$GHIDRA_SHA256" >> "$BUNDLE/INSTALL-MANIFEST.txt"
+          printf 'REA repository: https://github.com/morluto/rea\n' >> "$BUNDLE/INSTALL-MANIFEST.txt"
+          printf 'REA source commit: %s\n' "$REA_COMMIT" >> "$BUNDLE/INSTALL-MANIFEST.txt"
+          printf 'REA package version: %s\n' "$REA_VERSION" >> "$BUNDLE/INSTALL-MANIFEST.txt"
+          printf 'Node.js: %s\n' "$("$BUNDLE/node/bin/node" --version)" >> "$BUNDLE/INSTALL-MANIFEST.txt"
+          printf 'Java: %s\n' "$("$BUNDLE/jdk/bin/java" -version 2>&1 | head -n 1)" >> "$BUNDLE/INSTALL-MANIFEST.txt"
+
+          test -x "$BUNDLE/ghidra/support/analyzeHeadless"
+          "$BUNDLE/node/bin/node" "$BUNDLE/rea-runtime/node_modules/rea-agents/scripts/rea.mjs" --version
+          "$BUNDLE/jdk/bin/java" -version
+
+      - name: Upload verified toolchain
+        if: steps.guard.outputs.proceed == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ghidra-rea-toolchain
+          path: ${{ runner.temp }}/rea-ghidra-bundle
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
