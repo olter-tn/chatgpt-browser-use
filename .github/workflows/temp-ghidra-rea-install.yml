@@ -1,4 +1,4 @@
-name: Temporary Ghidra and REA bootstrap
+name: Temporary REA-compatible Ghidra 12.1.4 transfer
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
 jobs:
   bundle:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 25
     steps:
       - name: Checkout transfer repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -25,126 +25,36 @@ jobs:
             echo "proceed=true" >> "$GITHUB_OUTPUT"
           else
             echo "proceed=false" >> "$GITHUB_OUTPUT"
-            echo "Cleanup commit detected; skipping."
           fi
 
-      - name: Set up Node.js
-        if: steps.guard.outputs.proceed == 'true'
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: '24.22.1'
-
-      - name: Set up JDK
-        if: steps.guard.outputs.proceed == 'true'
-        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00
-        with:
-          distribution: temurin
-          java-version: '25'
-
-      - name: Download and verify Ghidra; install REA
+      - name: Download and verify Ghidra 12.1.4
         if: steps.guard.outputs.proceed == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          BUNDLE="$RUNNER_TEMP/rea-ghidra-bundle"
-          mkdir -p "$BUNDLE"
+          URL="https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.1.4_build/ghidra_12.1.4_PUBLIC_20260921.zip"
+          SHA256="ddac49f903da9d5bac833e5cc79395098b9c33cfd3279be5f31bd00387d2d4db"
+          curl -fL --retry 3 --retry-delay 2 "$URL" -o "$RUNNER_TEMP/ghidra-12.1.4.zip"
+          echo "$SHA256  $RUNNER_TEMP/ghidra-12.1.4.zip" | sha256sum --check --status
+          split -b 400M --numeric-suffixes=0 --suffix-length=2 "$RUNNER_TEMP/ghidra-12.1.4.zip" "$RUNNER_TEMP/ghidra1214-part-"
+          ls -lh "$RUNNER_TEMP"/ghidra1214-part-*
 
-          GHIDRA_URL="https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.2_build/ghidra_12.2_PUBLIC_20261016.zip"
-          GHIDRA_SHA256="2c2cd776db3c1f6a097ba418922378ac3649cadd5e844a6f5f088ae628a7be67"
-          curl -fL --retry 3 --retry-delay 2 "$GHIDRA_URL" -o "$RUNNER_TEMP/ghidra.zip"
-          echo "$GHIDRA_SHA256  $RUNNER_TEMP/ghidra.zip" | sha256sum --check --status
-          split -b 400M --numeric-suffixes=0 --suffix-length=2 "$RUNNER_TEMP/ghidra.zip" "$BUNDLE/ghidra-part-"
-
-          NODE_EXE="$(readlink -f "$(command -v node)")"
-          NODE_ROOT="$(dirname "$(dirname "$NODE_EXE")")"
-          cp -a "$NODE_ROOT" "$BUNDLE/node"
-          cp -a "$JAVA_HOME" "$BUNDLE/jdk"
-
-          git clone --depth 1 https://github.com/morluto/rea.git "$BUNDLE/rea-source"
-          REA_COMMIT="$(git -C "$BUNDLE/rea-source" rev-parse HEAD)"
-          REA_VERSION="$(node -p "require('$BUNDLE/rea-source/package.json').version")"
-          npm view "rea-agents@$REA_VERSION" version >/dev/null
-          npm install --prefix "$BUNDLE/rea-runtime" --no-audit --no-fund "rea-agents@$REA_VERSION"
-          rm -rf "$BUNDLE/rea-source/.git"
-
-          printf 'Ghidra release: Ghidra 12.2 (2026-10-16)\n' > "$BUNDLE/INSTALL-MANIFEST.txt"
-          printf 'Ghidra SHA-256: %s\n' "$GHIDRA_SHA256" >> "$BUNDLE/INSTALL-MANIFEST.txt"
-          printf 'REA repository: https://github.com/morluto/rea\n' >> "$BUNDLE/INSTALL-MANIFEST.txt"
-          printf 'REA source commit: %s\n' "$REA_COMMIT" >> "$BUNDLE/INSTALL-MANIFEST.txt"
-          printf 'REA package version: %s\n' "$REA_VERSION" >> "$BUNDLE/INSTALL-MANIFEST.txt"
-          printf 'Node.js: %s\n' "$("$BUNDLE/node/bin/node" --version)" >> "$BUNDLE/INSTALL-MANIFEST.txt"
-          printf 'Java: %s\n' "$("$BUNDLE/jdk/bin/java" -version 2>&1 | head -n 1)" >> "$BUNDLE/INSTALL-MANIFEST.txt"
-
-          "$BUNDLE/node/bin/node" "$BUNDLE/rea-runtime/node_modules/rea-agents/scripts/rea.mjs" --version
-          "$BUNDLE/jdk/bin/java" -version
-          du -sh "$BUNDLE"/*
-
-      - name: Upload Ghidra archive part 00
+      - name: Upload Ghidra 12.1.4 part 00
         if: steps.guard.outputs.proceed == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ghidra-part-00
-          path: ${{ runner.temp }}/rea-ghidra-bundle/ghidra-part-00
+          name: ghidra-1214-part-00
+          path: ${{ runner.temp }}/ghidra1214-part-00
           if-no-files-found: error
           retention-days: 1
           compression-level: 0
 
-      - name: Upload Ghidra archive part 01
+      - name: Upload Ghidra 12.1.4 part 01
         if: steps.guard.outputs.proceed == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ghidra-part-01
-          path: ${{ runner.temp }}/rea-ghidra-bundle/ghidra-part-01
-          if-no-files-found: error
-          retention-days: 1
-          compression-level: 0
-
-      - name: Upload Java runtime
-        if: steps.guard.outputs.proceed == 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: ghidra-jdk25
-          path: ${{ runner.temp }}/rea-ghidra-bundle/jdk
-          if-no-files-found: error
-          retention-days: 1
-          compression-level: 0
-
-      - name: Upload Node runtime
-        if: steps.guard.outputs.proceed == 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: rea-node24
-          path: ${{ runner.temp }}/rea-ghidra-bundle/node
-          if-no-files-found: error
-          retention-days: 1
-          compression-level: 0
-
-      - name: Upload REA package installation
-        if: steps.guard.outputs.proceed == 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: rea-runtime
-          path: ${{ runner.temp }}/rea-ghidra-bundle/rea-runtime
-          if-no-files-found: error
-          retention-days: 1
-          compression-level: 0
-
-      - name: Upload REA repository source
-        if: steps.guard.outputs.proceed == 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: rea-source
-          path: ${{ runner.temp }}/rea-ghidra-bundle/rea-source
-          if-no-files-found: error
-          retention-days: 1
-          compression-level: 0
-
-      - name: Upload installation manifest
-        if: steps.guard.outputs.proceed == 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: rea-ghidra-manifest
-          path: ${{ runner.temp }}/rea-ghidra-bundle/INSTALL-MANIFEST.txt
+          name: ghidra-1214-part-01
+          path: ${{ runner.temp }}/ghidra1214-part-01
           if-no-files-found: error
           retention-days: 1
           compression-level: 0
