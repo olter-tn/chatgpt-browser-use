@@ -5,10 +5,8 @@ on:
     paths:
       - '.github/workflows/stickman-demo-check.yml'
   workflow_dispatch:
-
 permissions:
   contents: read
-
 jobs:
   demo:
     runs-on: ubuntu-latest
@@ -18,11 +16,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
           git clone --depth 1 --branch main https://github.com/devassistant-io/claude-stickman-shorts.git stickman-kit
           python3 -m venv stickman-kit/.venv
           stickman-kit/.venv/bin/pip install numpy
           node --version
-          ffmpeg -version | head -1
+          ffmpeg -hide_banner -version | sed -n '1p'
           npx --yes hyperframes@0.8.189 --version
           npx --yes hyperframes@0.8.189 browser ensure
       - name: Render and QA six-second demo
