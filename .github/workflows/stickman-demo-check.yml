@@ -1,0 +1,44 @@
+name: Stickman shorts demo render check
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/stickman-demo-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Clone source and set up render requirements
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch main https://github.com/devassistant-io/claude-stickman-shorts.git stickman-kit
+          python3 -m venv stickman-kit/.venv
+          stickman-kit/.venv/bin/pip install numpy
+          node --version
+          ffmpeg -version | head -1
+          npx --yes hyperframes@0.8.189 --version
+          npx --yes hyperframes@0.8.189 browser ensure
+      - name: Render and QA six-second demo
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd stickman-kit
+          sh starter/render.sh demo.mp4
+          .venv/bin/python starter/check/qa.py starter/out/demo.mp4 --expect 6.0 --json demo-qa.json
+          ffprobe -v error -show_entries stream=codec_name,width,height,r_frame_rate -show_entries format=duration,size -of json starter/out/demo.mp4
+      - name: Upload demo video and QA report
+        uses: actions/upload-artifact@v4
+        with:
+          name: stickman-demo-verified
+          path: |
+            stickman-kit/starter/out/demo.mp4
+            stickman-kit/demo-qa.json
+          if-no-files-found: error
+          retention-days: 1
