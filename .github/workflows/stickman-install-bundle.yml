@@ -1,0 +1,38 @@
+name: Stickman shorts installation bundle
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/stickman-install-bundle.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Obtain public source and HyperFrames CLI
+        shell: bash
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: '1'
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/stickman-install
+          git clone --depth 1 --branch main https://github.com/devassistant-io/claude-stickman-shorts.git /tmp/stickman-install/claude-stickman-shorts
+          rm -rf /tmp/stickman-install/claude-stickman-shorts/.git
+          mkdir -p /tmp/stickman-install/hyperframes-runtime
+          npm install --prefix /tmp/stickman-install/hyperframes-runtime --no-audit --no-fund hyperframes@0.8.189
+          node /tmp/stickman-install/hyperframes-runtime/node_modules/hyperframes/bin/hyperframes.js --version ||             /tmp/stickman-install/hyperframes-runtime/node_modules/.bin/hyperframes --version
+          cd /tmp
+          tar -czf stickman-install-bundle.tar.gz stickman-install
+          ls -lh stickman-install-bundle.tar.gz
+      - name: Upload installation bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: stickman-install-bundle
+          path: /tmp/stickman-install-bundle.tar.gz
+          if-no-files-found: error
+          retention-days: 1
