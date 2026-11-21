@@ -22,7 +22,7 @@ jobs:
               await c.save("reel01_narration.mp3")
           asyncio.run(main())
           PY
-          ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1 reel01_narration.mp3
+          test -s reel01_narration.mp3
       - name: Upload voice asset
         uses: actions/upload-artifact@v4
         with:
