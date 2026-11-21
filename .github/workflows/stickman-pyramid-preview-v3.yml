@@ -1,0 +1,59 @@
+name: Pyramid final hook and ending preview
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/stickman-pyramid-preview-v3.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      HYPERFRAMES_NO_TELEMETRY: '1'
+      HYPERFRAMES_NO_UPDATE_CHECK: '1'
+      HYPERFRAMES_SKIP_SKILLS: '1'
+      CI: '1'
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the fixed version from the exact skill
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git clone --depth 1 https://github.com/devassistant-io/claude-stickman-shorts.git /tmp/kit
+          cp -R /tmp/kit/starter /tmp/pyramid
+          base64 -d stickman-pyramids/source.b64 > /tmp/overlay.zip
+          unzip -o /tmp/overlay.zip -d /tmp/pyramid
+          mkdir -p /tmp/assets
+          gh run download 44898146121 -n pyramid-skill-scenes-voice -D /tmp/assets -R olter-tn/chatgpt-browser-use
+          cd /tmp/pyramid
+          for n in voice.wav words.json transcript.json raw.wav; do
+            src=$(find /tmp/assets -name "$n" -type f -print -quit)
+            cp "$src" "voice/$n"
+          done
+          python3 tools/count.py
+          python3 build.py
+          python3 make_plan.py
+          python3 tools/views.py
+          npx --yes hyperframes@0.8.189 browser ensure
+      - name: Verify real Chrome Three.js runtime and preview stills
+        shell: bash
+        run: |
+          cd /tmp/pyramid
+          npx --yes hyperframes@0.8.189 check --json > check.json 2>check.err || true
+          npx --yes hyperframes@0.8.189 snapshot --at 0.6,3,60 --no-end --describe false -o /tmp/pyramid-preview 2>&1 | tee snapshot.log
+      - name: Collect corrected scene samples
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pyramid-final-three-scene-preview
+          path: |
+            /tmp/pyramid-preview
+            /tmp/pyramid/check.json
+            /tmp/pyramid/check.err
+            /tmp/pyramid/snapshot.log
+          if-no-files-found: warn
+          retention-days: 2
