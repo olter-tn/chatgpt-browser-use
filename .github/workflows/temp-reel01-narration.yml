@@ -1,4 +1,4 @@
-name: Reel 01 neural narration
+name: Reel 01 word-synced narration
 on:
   push:
     branches: [master]
@@ -11,22 +11,36 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Generate original voiceover
+      - name: Generate narration with exact word boundaries
         run: |
           python3 -m pip install --user edge-tts
           python3 - <<'PY'
-          import asyncio, edge_tts
+          import asyncio, edge_tts, json
           text = "Your business might be bleeding money, and your to-do list won't tell you. Watch three numbers: cost, deadlines, and quality. First, spot where spending spikes. Second, find tasks that keep slipping. Third, track what customers have to redo. Check them every week. Because if you don't measure the bottleneck, you'll keep paying for it."
           async def main():
-              c = edge_tts.Communicate(text, "en-US-GuyNeural", rate="+14%")
-              await c.save("reel01_narration.mp3")
+              voice = edge_tts.Communicate(text, "en-US-GuyNeural", rate="+14%")
+              timings = []
+              chunks = []
+              async for event in voice.stream():
+                  if event["type"]=="audio":
+                      chunks.append(event["data"])
+                  elif event["type"]=="WordBoundary":
+                      timings.append({"word":event["text"],"start":event["offset"]/10_000_000,"duration":event["duration"]/10_000_000})
+              with open("reel01_narration.mp3","wb") as fo: fo.write(b"".join(chunks))
+              with open("reel01_words.json","w") as fo: json.dump({"source":text,"words":timings},fo,indent=2)
+              print("Words",len(timings))
+              print("Audio bytes",sum(map(len,chunks)))
+              print("First",timings[:5])
+              print("Last",timings[-5:])
+              assert len(timings)>45 and len(chunks)>3
           asyncio.run(main())
           PY
-          test -s reel01_narration.mp3
-      - name: Upload voice asset
+      - name: Upload synchronized audio and timestamp data
         uses: actions/upload-artifact@v4
         with:
-          name: reel01-original-voice
-          path: reel01_narration.mp3
+          name: reel01-synced-narration
+          path: |
+            reel01_narration.mp3
+            reel01_words.json
           if-no-files-found: error
           retention-days: 1
