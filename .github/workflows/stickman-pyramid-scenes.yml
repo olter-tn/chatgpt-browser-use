@@ -1,0 +1,87 @@
+name: Pyramid stickman skill — voice and scene validation
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/stickman-pyramid-scenes.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      HYPERFRAMES_NO_TELEMETRY: '1'
+      HYPERFRAMES_NO_UPDATE_CHECK: '1'
+      HYPERFRAMES_SKIP_SKILLS: '1'
+      CI: '1'
+      HF: 'npx --yes hyperframes@0.8.189'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Set up the exact public kit and our new original project
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg espeak-ng
+          git clone --depth 1 https://github.com/devassistant-io/claude-stickman-shorts.git /tmp/kit
+          cp -R /tmp/kit/starter /tmp/pyramid-project
+          base64 -d stickman-pyramids/source.b64 > /tmp/project-overlay.zip
+          unzip -o /tmp/project-overlay.zip -d /tmp/pyramid-project
+          cd /tmp/pyramid-project
+          sed -i 's/enormous blocks \./enormous blocks through sand./g' SCRIPT.md
+          python tools/count.py
+          pip install --quiet numpy
+          python -m venv /tmp/pyramid-voice
+          /tmp/pyramid-voice/bin/pip install --quiet kokoro-onnx soundfile
+          echo "HYPERFRAMES_PYTHON=/tmp/pyramid-voice/bin/python" >> "$GITHUB_ENV"
+          sed -i 's/scale: 2/scale: 1/' compositions/short.html
+          sed -i 's/width: 1080, height: 1920/width: 540, height: 960/' compositions/short.html
+          sed -i 's/data-width="1080" data-height="1920"/data-width="540" data-height="960"/g' index.html compositions/short.html
+          sed -i 's/data-width="1080"/data-width="540"/g;s/data-height="1920"/data-height="960"/g' index.html compositions/short.html
+          echo '<!-- scale-1 540x960 GPU-safe test composition -->' >> compositions/short.html
+          ls -la voice/
+      - name: Produce real narration and word timestamps with HyperFrames
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd /tmp/pyramid-project
+          python -c 'import json; print(" ".join(x["text"] for x in json.load(open("script.json"))))' > SCRIPT.txt
+          npx --yes hyperframes@0.8.189 browser ensure
+          npx --yes hyperframes@0.8.189 tts SCRIPT.txt -v am_michael -s 1.13 -o voice/raw.wav
+          npx --yes hyperframes@0.8.189 transcribe voice/raw.wav --model base.en --dir voice
+          python tools/pace.py voice/raw.wav voice/transcript.json --wpm 215
+          python tools/count.py --words voice/words.json
+          python build.py
+          python make_plan.py
+          python tools/views.py
+          ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 voice/voice.wav
+          cp SCRIPT.txt voice/SCRIPT.txt
+      - name: Capture actual Three.js skill frames and log any runtime errors
+        shell: bash
+        run: |
+          cd /tmp/pyramid-project
+          npx --yes hyperframes@0.8.189 check --json > check.json 2> check.err || true
+          npx --yes hyperframes@0.8.189 snapshot --at 0.6,7,16,24,35,45,52,60 --no-end --describe false -o /tmp/pyramid-stills 2>&1 | tee snapshot.log
+          ls -lh /tmp/pyramid-stills/
+      - name: Collect debug information
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pyramid-skill-scenes-voice
+          path: |
+            /tmp/pyramid-stills
+            /tmp/pyramid-project/voice/*.wav
+            /tmp/pyramid-project/voice/*.json
+            /tmp/pyramid-project/voice/SCRIPT.txt
+            /tmp/pyramid-project/check.json
+            /tmp/pyramid-project/check.err
+            /tmp/pyramid-project/snapshot.log
+            /tmp/pyramid-project/words.js
+            /tmp/pyramid-project/views.js
+          if-no-files-found: warn
+          retention-days: 1
