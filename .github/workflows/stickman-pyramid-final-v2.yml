@@ -1,0 +1,107 @@
+name: Pyramid stickman skill — corrected final render
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/stickman-pyramid-final-v2.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  film:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      HYPERFRAMES_NO_TELEMETRY: '1'
+      HYPERFRAMES_NO_UPDATE_CHECK: '1'
+      HYPERFRAMES_SKIP_SKILLS: '1'
+      HYPERFRAMES_RENDER_DETACHED: '1'
+      CI: '1'
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Fetch the exact skill project and previously generated real narration
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          pip install --quiet numpy
+          git clone --depth 1 https://github.com/devassistant-io/claude-stickman-shorts.git /tmp/kit
+          cp -R /tmp/kit/starter /tmp/pyramid-project
+          base64 -d stickman-pyramids/source.b64 > /tmp/project-overlay.zip
+          unzip -o /tmp/project-overlay.zip -d /tmp/pyramid-project
+          cd /tmp/pyramid-project
+          sed -i 's/enormous blocks \./enormous blocks through sand./g' SCRIPT.md
+          python tools/count.py
+          sed -i 's/scale: 2/scale: 1/' compositions/short.html
+          sed -i 's/width: 1080, height: 1920/width: 540, height: 960/' compositions/short.html
+          sed -i 's/data-width="1080"/data-width="540"/g;s/data-height="1920"/data-height="960"/g' index.html compositions/short.html
+          sed -i 's/font-size: 82px/font-size: 45px/g;s/-webkit-text-stroke: 13px/-webkit-text-stroke: 7px/g' engine/words.css
+          mkdir -p /tmp/asset
+          gh run download 44898146121 -n pyramid-skill-scenes-voice -D /tmp/asset -R olter-tn/chatgpt-browser-use
+          find /tmp/asset -maxdepth 6 -type f | head -40
+          for n in voice.wav words.json transcript.json raw.wav; do
+            src=$(find /tmp/asset -type f -name "$n" -print -quit)
+            [ -f "$src" ] || { echo "missing narration asset $n"; exit 1; }
+            cp "$src" "voice/$n"
+          done
+          python build.py
+          python make_plan.py
+          python tools/views.py
+          npx --yes hyperframes@0.8.189 browser ensure
+      - name: Render with the actual Three.js HyperFrames engine
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd /tmp/pyramid-project
+          mkdir -p out
+          npx --yes hyperframes@0.8.189 render --workers 2 --fps 24 --quality looks --output out/pharaoh-cat-raw.mp4 2>&1 | tee out/hyperframes-render.log
+          ffprobe -v error -show_entries stream=width,height,r_frame_rate -show_entries format=duration,size -of json out/pharaoh-cat-raw.mp4
+      - name: Original music bed, skill loudness mastering and video QA
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd /tmp/pyramid-project
+          python - <<'PY'
+          import numpy as np, wave, json, os
+          from pathlib import Path
+          T=float(json.loads(Path('voice/words.json').read_text())[-1]['end'])+2
+          sr=24000;n=int(sr*T);arr=np.zeros(n,dtype=np.float32)
+          for k,t in enumerate(np.arange(0,T,60/108)):
+              i=int(t*sr);size=min(int(sr*.21),n-i)
+              if size<1:continue
+              x=np.arange(size,dtype=np.float32)/sr
+              low=np.sin(2*np.pi*(74*x+35*x*x))*np.exp(-23*x)
+              arr[i:i+size]+=(.09 if k%4==0 else .034)*low
+              if k%4==2:
+                  rng=np.random.default_rng(k+72)
+                  arr[i:i+size]+=.018*rng.standard_normal(size)*np.exp(-51*x)
+              if k%4 in (0,2):
+                  f=330 if k%4==0 else 440
+                  arr[i:i+size]+=.03*np.sin(2*np.pi*f*x)*np.exp(-10*x)
+          arr=np.clip(arr,-.9,.9)
+          with wave.open('bed.wav','wb') as o:
+              o.setnchannels(1);o.setsampwidth(2);o.setframerate(sr)
+              o.writeframes((arr*32767).astype('<i2').tobytes())
+          PY
+          BED=bed.wav BED_DB=18 SOUND_ONLY=1 sh render.sh pharaoh-cat.mp4
+          python check/qa.py out/pharaoh-cat.mp4 --json out/qa.json || true
+          ffmpeg -y -hide_banner -loglevel error -i out/pharaoh-cat.mp4 -vf "scale=1080:1920:flags=lanczos,unsharp=3:3:0.28" -c:v libx264 -preset faster -crf 17 -pix_fmt yuv420p -c:a copy -movflags +faststart out/pharaoh-cat-1080.mp4
+          ffprobe -v error -show_entries stream=width,height,codec_name,r_frame_rate -show_entries format=duration,size -of json out/pharaoh-cat-1080.mp4
+      - name: Deliver rendered video and project checks
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pyramid-cat-corrected-skill-video
+          path: |
+            /tmp/pyramid-project/out/pharaoh-cat.mp4
+            /tmp/pyramid-project/out/pharaoh-cat-1080.mp4
+            /tmp/pyramid-project/out/qa.json
+            /tmp/pyramid-project/out/hyperframes-render.log
+          if-no-files-found: warn
+          retention-days: 2
