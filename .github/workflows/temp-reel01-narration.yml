@@ -1,0 +1,32 @@
+name: Reel 01 neural narration
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/temp-reel01-narration.yml'
+permissions:
+  contents: read
+jobs:
+  speak:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Generate original voiceover
+        run: |
+          python3 -m pip install --user edge-tts
+          python3 - <<'PY'
+          import asyncio, edge_tts
+          text = "Your business might be bleeding money, and your to-do list won't tell you. Watch three numbers: cost, deadlines, and quality. First, spot where spending spikes. Second, find tasks that keep slipping. Third, track what customers have to redo. Check them every week. Because if you don't measure the bottleneck, you'll keep paying for it."
+          async def main():
+              c = edge_tts.Communicate(text, "en-US-GuyNeural", rate="+14%")
+              await c.save("reel01_narration.mp3")
+          asyncio.run(main())
+          PY
+          ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1 reel01_narration.mp3
+      - name: Upload voice asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: reel01-original-voice
+          path: reel01_narration.mp3
+          if-no-files-found: error
+          retention-days: 1
