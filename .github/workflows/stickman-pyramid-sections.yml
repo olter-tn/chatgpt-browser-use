@@ -1,0 +1,90 @@
+name: Pyramid stickman skill — four parallel sections
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/stickman-pyramid-sections.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  section:
+    name: Render section ${{ matrix.part }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [0, 1, 2, 3]
+    env:
+      HYPERFRAMES_NO_TELEMETRY: '1'
+      HYPERFRAMES_NO_UPDATE_CHECK: '1'
+      HYPERFRAMES_SKIP_SKILLS: '1'
+      HYPERFRAMES_RENDER_DETACHED: '1'
+      CI: '1'
+      GH_TOKEN: ${{ github.token }}
+      PART: ${{ matrix.part }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Load original stickman skill, project, and word-aligned narration
+        shell: bash
+        run: |
+          set -euxo pipefail
+          command -v ffmpeg || { sudo apt-get update -qq; sudo apt-get install -y ffmpeg; }
+          git clone --depth 1 https://github.com/devassistant-io/claude-stickman-shorts.git /tmp/kit
+          cp -R /tmp/kit/starter /tmp/project
+          base64 -d stickman-pyramids/source.b64 > /tmp/overlay.zip
+          unzip -o /tmp/overlay.zip -d /tmp/project
+          mkdir -p /tmp/voice-assets
+          gh run download 44898146121 -n pyramid-skill-scenes-voice -D /tmp/voice-assets -R olter-tn/chatgpt-browser-use
+          cd /tmp/project
+          for n in voice.wav words.json transcript.json raw.wav; do
+            file=$(find /tmp/voice-assets -type f -name "$n" -print -quit)
+            test -s "$file"
+            cp "$file" "voice/$n"
+          done
+          python3 tools/count.py
+          python3 build.py
+          python3 make_plan.py
+          python3 tools/views.py
+          python3 - <<'PY'
+          import os, re, pathlib
+          parts = [(0,368),(368,368),(736,368),(1104,366)]
+          first, count = parts[int(os.environ['PART'])]
+          offset, seconds = first/24, count/24
+          p = pathlib.Path('index.html')
+          s = p.read_text()
+          assert s.count('data-duration="61.23"') >= 2
+          s = s.replace('data-duration="61.23"', f'data-duration="{seconds:.9f}"')
+          s = re.sub(r'<audio id="voice".*?</audio>', '', s, flags=re.S)
+          p.write_text(s)
+          p = pathlib.Path('compositions/short.html')
+          s = p.read_text()
+          assert 'const D = RT.DURATION, $' in s
+          assert 'stage.clock = { t: 0 }' in s
+          assert 'tl.to(stage.clock, { t: D, duration: D' in s
+          s = s.replace('data-duration="61.23"', f'data-duration="{seconds:.9f}"')
+          s = s.replace('const D = RT.DURATION, $',f'const D = {seconds:.9f}, CHUNK_START = {offset:.9f}, $')
+          s = s.replace('stage.clock = { t: 0 }', 'stage.clock = { t: CHUNK_START }')
+          s = s.replace('stage.renderAt(0);', 'stage.renderAt(CHUNK_START);')
+          s = s.replace('tl.to(stage.clock, { t: D, duration: D', 'tl.to(stage.clock, { t: CHUNK_START + D, duration: D')
+          p.write_text(s)
+          print(f'PART {os.environ["PART"]}: frames {first}..{first+count-1} = {seconds:.6f}s, offset {offset:.6f}s')
+          PY
+          npx --yes hyperframes@0.8.189 browser ensure
+      - name: Render section with the actual Three.js engine
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd /tmp/project
+          mkdir -p /tmp/sections
+          npx --yes hyperframes@0.8.189 render --workers 3 --fps 24 --quality looks --output "/tmp/sections/part-${PART}.mp4"
+          ffprobe -v error -show_entries stream=width,height,r_frame_rate -show_entries format=duration,size -of json "/tmp/sections/part-${PART}.mp4"
+      - name: Upload rendered section
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pyramid-real-skill-section-${{ matrix.part }}
+          path: /tmp/sections/
+          if-no-files-found: warn
+          retention-days: 2
