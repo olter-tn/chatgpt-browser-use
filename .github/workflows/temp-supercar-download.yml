@@ -51,7 +51,7 @@ jobs:
           "$HOME/.deno/bin/deno" --version
           python3 -m yt_dlp --version
 
-      - name: Download Balti - Ya Hasra
+      - name: Download licensed business stock footage
         shell: bash
         run: |
           set -euxo pipefail
@@ -62,14 +62,14 @@ jobs:
             --extractor-args 'youtube:player_client=web_embedded' \
             --no-playlist \
             -f '18' \
-            -o 'tS8nzAQg_8k.%(ext)s' \
-            'https://www.youtube.com/watch?v=tS8nzAQg_8k'
-          ls -lh tS8nzAQg_8k.*
+            -o 'cuXGxDzUHvE.%(ext)s' \
+            'https://www.youtube.com/watch?v=cuXGxDzUHvE'
+          ls -lh cuXGxDzUHvE.*
 
       - name: Upload MP4 artifact
         uses: actions/upload-artifact@v4
         with:
-          name: tS8nzAQg_8k-video
-          path: tS8nzAQg_8k.mp4
+          name: cuXGxDzUHvE-video
+          path: cuXGxDzUHvE.mp4
           if-no-files-found: error
           retention-days: 1
