@@ -1,75 +1,47 @@
-name: Temporary YouTube video download
-
+name: Business reel licensed footage
 on:
   push:
     branches: [master]
     paths:
       - '.github/workflows/temp-supercar-download.yml'
-
 permissions:
   contents: read
-
 jobs:
   download:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 15
     steps:
-      - name: Start Cloudflare WARP SOCKS proxy
+      - name: Download directly licensed Pexels footage
         shell: bash
         run: |
-          set -euxo pipefail
-          docker network create warp-net || true
-          docker run -d \
-            --name warp \
-            --network warp-net \
-            -p 1080:1080 \
-            --cap-add NET_ADMIN \
-            --sysctl net.ipv6.conf.all.disable_ipv6=0 \
-            --sysctl net.ipv4.conf.all.src_valid_mark=1 \
-            caomingjun/warp
-
-          for i in {1..30}; do
-            RESULT=$(curl -s --max-time 5 \
-              --socks5-hostname 127.0.0.1:1080 \
-              https://cloudflare.com/cdn-cgi/trace || true)
-            echo "$RESULT"
-            if echo "$RESULT" | grep -qE 'warp=(on|plus)'; then
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "Cloudflare WARP did not become ready" >&2
-          exit 1
-
-      - name: Install yt-dlp and Deno
-        shell: bash
-        run: |
-          set -euxo pipefail
-          python3 -m pip install --user -U --pre 'yt-dlp[default]'
-          curl -fsSL https://deno.land/install.sh | sh
-          echo "$HOME/.deno/bin" >> "$GITHUB_PATH"
-          "$HOME/.deno/bin/deno" --version
-          python3 -m yt_dlp --version
-
-      - name: Download licensed business stock footage
-        shell: bash
-        run: |
-          set -euxo pipefail
-          python3 -m yt_dlp \
-            --proxy 'socks5://127.0.0.1:1080' \
-            --remote-components ejs:github \
-            --js-runtimes deno \
-            --extractor-args 'youtube:player_client=web_embedded' \
-            --no-playlist \
-            -f '18' \
-            -o 'cuXGxDzUHvE.%(ext)s' \
-            'https://www.youtube.com/watch?v=cuXGxDzUHvE'
-          ls -lh cuXGxDzUHvE.*
-
-      - name: Upload MP4 artifact
+          set -euo pipefail
+          mkdir -p stock
+          fetch_one() {
+            ID="$1"; FPS="$2"; NAME="$3"
+            for res in hd_1280_720 hd_1920_1080 sd_640_360; do
+              for rate in "$FPS" 25 30 50 24; do
+                URL="https://videos.pexels.com/video-files/${ID}/${ID}-${res}_${rate}fps.mp4"
+                echo "Checking $URL"
+                if curl -fLsS --retry 1 --max-time 40 "$URL" -o "stock/${NAME}.mp4" && test "$(wc -c < "stock/${NAME}.mp4")" -gt 100000; then
+                  echo "Fetched ${NAME}: $(wc -c < "stock/${NAME}.mp4") bytes"
+                  return 0
+                fi
+              done
+            done
+            rm -f "stock/${NAME}.mp4"
+            echo "Could not fetch ${NAME}" >&2
+            return 1
+          }
+          fetch_one 3255329 50 busy_laptop || true
+          fetch_one 8939541 25 team_laptop || true
+          fetch_one 7688066 30 team_office || true
+          fetch_one 7792221 25 focused_work || true
+          test "$(find stock -type f -name '*.mp4' | wc -l)" -ge 1
+          ls -lh stock
+      - name: Upload licensed stock video assets
         uses: actions/upload-artifact@v4
         with:
-          name: cuXGxDzUHvE-video
-          path: cuXGxDzUHvE.mp4
+          name: reel01-pexels-stock
+          path: stock/*.mp4
           if-no-files-found: error
           retention-days: 1
