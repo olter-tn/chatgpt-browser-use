@@ -18,16 +18,19 @@ jobs:
           import asyncio, edge_tts, json
           text = "Your business might be bleeding money, and your to-do list won't tell you. Watch three numbers: cost, deadlines, and quality. First, spot where spending spikes. Second, find tasks that keep slipping. Third, track what customers have to redo. Check them every week. Because if you don't measure the bottleneck, you'll keep paying for it."
           async def main():
-              voice = edge_tts.Communicate(text, "en-US-GuyNeural", rate="+14%")
+              voice = edge_tts.Communicate(text, "en-US-GuyNeural", rate="+14%", boundary="WordBoundary")
               timings = []
               chunks = []
+              types = {}
               async for event in voice.stream():
+                  types[event["type"]] = types.get(event["type"], 0)+1
                   if event["type"]=="audio":
                       chunks.append(event["data"])
                   elif event["type"]=="WordBoundary":
                       timings.append({"word":event["text"],"start":event["offset"]/10_000_000,"duration":event["duration"]/10_000_000})
               with open("reel01_narration.mp3","wb") as fo: fo.write(b"".join(chunks))
               with open("reel01_words.json","w") as fo: json.dump({"source":text,"words":timings},fo,indent=2)
+              print("Event types",types)
               print("Words",len(timings))
               print("Audio bytes",sum(map(len,chunks)))
               print("First",timings[:5])
