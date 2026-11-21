@@ -24,8 +24,6 @@ jobs:
             --user-agent 'CatReelMaker/1.0 (https://github.com/olter-tn/chatgpt-browser-use)' \
             'https://upload.wikimedia.org/wikipedia/commons/0/07/Cat_Jumpscare.webm' \
             -o cat-assets/jumpscare.webm
-          ffprobe -v error -show_entries format=duration,size -of json cat-assets/moomin.webm
-          ffprobe -v error -show_entries format=duration,size -of json cat-assets/jumpscare.webm
           cat > cat-assets/credits.txt <<'EOF'
           Moomin1.webm — Tet — CC0 1.0 — https://commons.wikimedia.org/wiki/File:Moomin1.webm
           Cat Jumpscare.webm — Panini! — CC0 1.0 — https://commons.wikimedia.org/wiki/File:Cat_Jumpscare.webm
