@@ -1,0 +1,27 @@
+name: Temporary licensed character asset transfer
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/temp-film-character.yml'
+permissions:
+  contents: read
+jobs:
+  transfer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Fetch CesiumMan CC BY 4.0 binary
+        run: |
+          set -euo pipefail
+          curl -fL --retry 4 -o CesiumMan.glb https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/CesiumMan/glTF-Binary/CesiumMan.glb
+          curl -fL -o CesiumMan-LICENSE.md https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/CesiumMan/LICENSE.md
+          ls -lh CesiumMan.glb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: character-asset
+          path: |
+            CesiumMan.glb
+            CesiumMan-LICENSE.md
+          compression-level: 0
+          retention-days: 1
