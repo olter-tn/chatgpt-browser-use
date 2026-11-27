@@ -1,4 +1,4 @@
-name: Ecommerce caption review
+name: Ecommerce coherent clip review
 on:
   push:
     branches: [master]
@@ -33,11 +33,11 @@ jobs:
                       a=f.to_ndarray().flatten()
                       pieces.append(a)
                       total+=len(a)
-                  if total>=16000*60: break
+                  if total>=16000*160: break
           audio=np.concatenate(pieces).astype('float32')/32768.0
           model=WhisperModel('large-v3',device='cpu',compute_type='int8',cpu_threads=4)
           data=[]
-          for a,b in [(19,29),(40,57.8)]:
+          for a,b in [(14,30),(30,58.2),(82,119),(119,158)]:
               segs,_=model.transcribe(audio[int(a*16000):int(b*16000)],language='ar',word_timestamps=True,beam_size=5,condition_on_previous_text=False)
               for s in segs:
                   d=dict(start=s.start+a,end=s.end+a,text=s.text,words=[dict(start=w.start+a,end=w.end+a,word=w.word,probability=w.probability) for w in s.words or []])
@@ -47,6 +47,6 @@ jobs:
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: ecommerce-caption-review
+          name: ecommerce-context-review
           path: review.json
           retention-days: 1
