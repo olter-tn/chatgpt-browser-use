@@ -1,4 +1,4 @@
-name: Ecommerce podcast test source
+name: Ecommerce podcast test source retry
 on:
   push:
     branches: [master]
@@ -9,7 +9,7 @@ permissions:
 jobs:
   source:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 20
     steps:
       - name: Start WARP proxy
         shell: bash
@@ -32,7 +32,7 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p sample
-          python -m yt_dlp --proxy 'socks5://127.0.0.1:1080' --remote-components ejs:github --js-runtimes deno --extractor-args 'youtube:player_client=web_embedded' --no-playlist -f 'bv*[height<=720][ext=mp4]+ba[ext=m4a]/18' --merge-output-format mp4 -o 'source.%(ext)s' 'https://www.youtube.com/watch?v=W2pwIKgQeWM'
+          python -m yt_dlp --proxy 'socks5://127.0.0.1:1080' --remote-components ejs:github --js-runtimes deno --extractor-args 'youtube:player_client=web_embedded' --no-playlist -f 18 -o 'source.%(ext)s' 'https://www.youtube.com/watch?v=W2pwIKgQeWM' || python -m yt_dlp --no-playlist --js-runtimes deno --remote-components ejs:github -f 18 -o 'source.%(ext)s' 'https://www.youtube.com/watch?v=W2pwIKgQeWM'
           ffmpeg -hide_banner -loglevel error -y -ss 00:32:47 -i source.mp4 -t 240 -c:v libx264 -preset fast -crf 20 -c:a aac -b:a 128k sample/excerpt.mp4
           ffprobe -v error -show_format -show_streams sample/excerpt.mp4 > sample/probe.txt
       - name: Upload excerpt
