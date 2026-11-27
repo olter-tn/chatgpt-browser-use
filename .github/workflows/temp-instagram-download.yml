@@ -47,6 +47,12 @@ jobs:
           python3 -m venv /tmp/reel-env
           /tmp/reel-env/bin/pip install faster-whisper
           /tmp/reel-env/bin/python - <<'PY'
+          import av
+          original_open = av.open
+          def compatible_open(*args, **kwargs):
+              kwargs.pop('metadata_errors', None)
+              return original_open(*args, **kwargs)
+          av.open = compatible_open
           from faster_whisper import WhisperModel
           model = WhisperModel("small", device="cpu", compute_type="int8")
           segments, info = model.transcribe("Der_moKoXdo.mp4", beam_size=5, vad_filter=False)
