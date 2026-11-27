@@ -1,4 +1,4 @@
-name: Ecommerce podcast test source retry
+name: Ecommerce podcast test source and captions
 on:
   push:
     branches: [master]
@@ -25,6 +25,8 @@ jobs:
           exit 1
       - name: Install tools
         run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
           python -m pip install --pre -U 'yt-dlp[default]' faster-whisper
           curl -fsSL https://deno.land/install.sh | sh
           echo "$HOME/.deno/bin" >> "$GITHUB_PATH"
@@ -33,7 +35,7 @@ jobs:
           set -euxo pipefail
           mkdir -p sample
           python -m yt_dlp --proxy 'socks5://127.0.0.1:1080' --remote-components ejs:github --js-runtimes deno --extractor-args 'youtube:player_client=web_embedded' --no-playlist -f 18 -o 'source.%(ext)s' 'https://www.youtube.com/watch?v=W2pwIKgQeWM' || python -m yt_dlp --no-playlist --js-runtimes deno --remote-components ejs:github -f 18 -o 'source.%(ext)s' 'https://www.youtube.com/watch?v=W2pwIKgQeWM'
-          ffmpeg -hide_banner -loglevel error -y -ss 00:32:47 -i source.mp4 -t 240 -c:v libx264 -preset fast -crf 20 -c:a aac -b:a 128k sample/excerpt.mp4
+          ffmpeg -hide_banner -loglevel error -y -ss 00:32:47 -i source.mp4 -t 180 -c:v libx264 -preset ultrafast -crf 20 -c:a aac -b:a 128k sample/excerpt.mp4
           ffprobe -v error -show_format -show_streams sample/excerpt.mp4 > sample/probe.txt
       - name: Upload excerpt
         uses: actions/upload-artifact@v4
@@ -46,7 +48,7 @@ jobs:
           python - <<'PY'
           from faster_whisper import WhisperModel
           import json
-          model=WhisperModel('large-v3-turbo',device='cpu',compute_type='int8',cpu_threads=4)
+          model=WhisperModel('small',device='cpu',compute_type='int8',cpu_threads=4)
           segments, info=model.transcribe('sample/excerpt.mp4',language='ar',word_timestamps=True,beam_size=3,vad_filter=True)
           data=[]
           for s in segments:
