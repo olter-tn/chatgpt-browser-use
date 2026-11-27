@@ -5,11 +5,17 @@ on:
     paths: ['.github/workflows/temp-instagram-download.yml']
 permissions:
   contents: read
+  statuses: write
 jobs:
   download:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 15
     steps:
+      - name: Publish run link
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" -f state=pending -f context=instagram-download -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" -f description='Reel workflow started'
       - name: Install downloader
         run: python3 -m pip install --user -U --pre 'yt-dlp[default]'
       - name: Retrieve reel
@@ -35,8 +41,34 @@ jobs:
           path: Der_moKoXdo.mp4
           if-no-files-found: error
           retention-days: 1
-      - name: Install FFmpeg and validate media
+      - name: Transcribe audio
+        shell: bash
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y ffmpeg
-          ffprobe -v error -show_format -show_streams Der_moKoXdo.mp4
+          python3 -m venv /tmp/reel-env
+          /tmp/reel-env/bin/pip install faster-whisper
+          /tmp/reel-env/bin/python - <<'PY'
+          from faster_whisper import WhisperModel
+          model = WhisperModel("small", device="cpu", compute_type="int8")
+          segments, info = model.transcribe("Der_moKoXdo.mp4", beam_size=5, vad_filter=False)
+          with open("transcript.txt", "w", encoding="utf-8") as f:
+              f.write(f"Detected language: {info.language} ({info.language_probability:.2f})\n")
+              for s in segments:
+                  line = f"[{s.start:.2f}–{s.end:.2f}] {s.text.strip()}"
+                  print(line, flush=True)
+                  f.write(line + "\n")
+          PY
+      - name: Upload transcript
+        uses: actions/upload-artifact@v4
+        with:
+          name: Der_moKoXdo-transcript
+          path: transcript.txt
+          retention-days: 1
+      - name: Publish final status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          STATE=failure
+          if [ "$JOB_STATUS" = success ]; then STATE=success; fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" -f state="$STATE" -f context=instagram-download -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
