@@ -1,0 +1,153 @@
+name: Ecommerce ten-reel HD source and transcript
+on:
+  push:
+    branches: [master]
+    paths: ['.github/workflows/temp-ecommerce-batch.yml']
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Install FFmpeg and yt-dlp
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          python -m pip install --pre -U 'yt-dlp[default]'
+          curl -fsSL https://deno.land/install.sh | sh
+          echo "$HOME/.deno/bin" >> "$GITHUB_PATH"
+      - name: Start WARP
+        run: |
+          docker run -d --name warp -p 127.0.0.1:1080:1080 --cap-add NET_ADMIN --sysctl net.ipv6.conf.all.disable_ipv6=0 --sysctl net.ipv4.conf.all.src_valid_mark=1 caomingjun/warp
+          for i in {1..30}; do
+            curl -s --max-time 4 --socks5-hostname 127.0.0.1:1080 https://cloudflare.com/cdn-cgi/trace | grep -qE 'warp=(on|plus)' && exit 0
+            sleep 2
+          done
+          exit 1
+      - name: Download original video with best accessible quality
+        run: |
+          set -euo pipefail
+          URL='https://www.youtube.com/watch?v=W2pwIKgQeWM'
+          for attempt in 1 2 3; do
+            python -m yt_dlp --proxy socks5://127.0.0.1:1080 --remote-components ejs:github --js-runtimes deno --extractor-args youtube:player_client=web_embedded --no-playlist --no-progress -f 'bv*[height<=1080][ext=mp4]+ba[ext=m4a]/18' --merge-output-format mp4 -o 'source.%(ext)s' "$URL" && break
+            sleep 2
+          done
+          if ! test -s source.mp4; then
+            python -m yt_dlp --proxy socks5://127.0.0.1:1080 --remote-components ejs:github --js-runtimes deno --extractor-args youtube:player_client=web_embedded --no-playlist --no-progress -f 18 -o source.mp4 "$URL" || python -m yt_dlp --no-playlist -f 18 -o source.mp4 "$URL"
+          fi
+          ffprobe -v error -show_entries stream=codec_name,width,height -show_entries format=duration -of json source.mp4
+      - name: Export 10 context windows
+        run: |
+          mkdir -p windows
+          ffmpeg -hide_banner -loglevel error -y -ss 00:20:42 -i source.mp4 -t 155 -c:v libx264 -preset ultrafast -crf 23 -vf "scale='min(1280,iw)':-2" -c:a aac -b:a 96k windows/01.mp4
+          ffmpeg -hide_banner -loglevel error -y -ss 00:28:42 -i source.mp4 -t 155 -c:v libx264 -preset ultrafast -crf 23 -vf "scale='min(1280,iw)':-2" -c:a aac -b:a 96k windows/02.mp4
+          ffmpeg -hide_banner -loglevel error -y -ss 00:56:42 -i source.mp4 -t 155 -c:v libx264 -preset ultrafast -crf 23 -vf "scale='min(1280,iw)':-2" -c:a aac -b:a 96k windows/03.mp4
+          ffmpeg -hide_banner -loglevel error -y -ss 01:12:42 -i source.mp4 -t 155 -c:v libx264 -preset ultrafast -crf 23 -vf "scale='min(1280,iw)':-2" -c:a aac -b:a 96k windows/04.mp4
+          ffmpeg -hide_banner -loglevel error -y -ss 01:36:42 -i source.mp4 -t 155 -c:v libx264 -preset ultrafast -crf 23 -vf "scale='min(1280,iw)':-2" -c:a aac -b:a 96k windows/05.mp4
+          ffmpeg -hide_banner -loglevel error -y -ss 01:39:13 -i source.mp4 -t 155 -c:v libx264 -preset ultrafast -crf 23 -vf "scale='min(1280,iw)':-2" -c:a aac -b:a 96k windows/06.mp4
+          ffmpeg -hide_banner -loglevel error -y -ss 01:47:13 -i source.mp4 -t 155 -c:v libx264 -preset ultrafast -crf 23 -vf "scale='min(1280,iw)':-2" -c:a aac -b:a 96k windows/07.mp4
+          ffmpeg -hide_banner -loglevel error -y -ss 01:51:13 -i source.mp4 -t 155 -c:v libx264 -preset ultrafast -crf 23 -vf "scale='min(1280,iw)':-2" -c:a aac -b:a 96k windows/08.mp4
+          ffmpeg -hide_banner -loglevel error -y -ss 02:03:13 -i source.mp4 -t 155 -c:v libx264 -preset ultrafast -crf 23 -vf "scale='min(1280,iw)':-2" -c:a aac -b:a 96k windows/09.mp4
+          ffmpeg -hide_banner -loglevel error -y -ss 00:32:42 -i source.mp4 -t 155 -c:v libx264 -preset ultrafast -crf 23 -vf "scale='min(1280,iw)':-2" -c:a aac -b:a 96k windows/10.mp4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ecom-window-01
+          path: windows/01.mp4
+          compression-level: 0
+          retention-days: 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ecom-window-02
+          path: windows/02.mp4
+          compression-level: 0
+          retention-days: 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ecom-window-03
+          path: windows/03.mp4
+          compression-level: 0
+          retention-days: 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ecom-window-04
+          path: windows/04.mp4
+          compression-level: 0
+          retention-days: 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ecom-window-05
+          path: windows/05.mp4
+          compression-level: 0
+          retention-days: 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ecom-window-06
+          path: windows/06.mp4
+          compression-level: 0
+          retention-days: 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ecom-window-07
+          path: windows/07.mp4
+          compression-level: 0
+          retention-days: 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ecom-window-08
+          path: windows/08.mp4
+          compression-level: 0
+          retention-days: 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ecom-window-09
+          path: windows/09.mp4
+          compression-level: 0
+          retention-days: 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ecom-window-10
+          path: windows/10.mp4
+          compression-level: 0
+          retention-days: 1
+  transcribe:
+    needs: source
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        clip: ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10"]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ecom-window-${{ matrix.clip }}
+          path: window
+      - run: python -m pip install faster-whisper
+      - name: Transcribe source with words
+        env:
+          CLIP: ${{ matrix.clip }}
+        run: |
+          python - <<'PY'
+          import av,numpy as np,json,os
+          from faster_whisper import WhisperModel
+          resampler=av.AudioResampler(format='s16',layout='mono',rate=16000)
+          parts=[]
+          with av.open('window/'+os.environ['CLIP']+'.mp4') as c:
+              for frame in c.decode(audio=0):
+                  for f in resampler.resample(frame):parts.append(f.to_ndarray().flatten())
+          audio=np.concatenate(parts).astype('float32')/32768.0
+          model=WhisperModel('large-v3-turbo',device='cpu',compute_type='int8',cpu_threads=4)
+          segs,_=model.transcribe(audio,language='ar',word_timestamps=True,beam_size=3,condition_on_previous_text=False,vad_filter=True,initial_prompt='بودكاست تونسي بالدارجة عن التجارة الإلكترونية. e-commerce, produit, commande, publicité, creative, media buyer, marketing, stock, CPA, break-even, livraison, confirmation.')
+          data=[]
+          for s in segs:
+              data.append(dict(start=s.start,end=s.end,text=s.text,words=[dict(start=w.start,end=w.end,word=w.word,probability=w.probability) for w in s.words or []]))
+              print(s.start,s.end,s.text,flush=True)
+          with open('transcript.json','w',encoding='utf8') as f:json.dump(data,f,ensure_ascii=False,indent=2)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ecom-transcript-${{ matrix.clip }}
+          path: transcript.json
+          retention-days: 1
