@@ -1,4 +1,4 @@
-name: Ecommerce coherent clip review
+name: Ecommerce focused profitability transcription
 on:
   push:
     branches: [master]
@@ -33,12 +33,12 @@ jobs:
                       a=f.to_ndarray().flatten()
                       pieces.append(a)
                       total+=len(a)
-                  if total>=16000*160: break
+                  if total>=16000*126: break
           audio=np.concatenate(pieces).astype('float32')/32768.0
-          model=WhisperModel('large-v3',device='cpu',compute_type='int8',cpu_threads=4)
+          model=WhisperModel('large-v3-turbo',device='cpu',compute_type='int8',cpu_threads=4)
           data=[]
-          for a,b in [(14,30),(30,58.2),(82,119),(119,158)]:
-              segs,_=model.transcribe(audio[int(a*16000):int(b*16000)],language='ar',word_timestamps=True,beam_size=5,condition_on_previous_text=False)
+          for a,b in [(84,104),(104,125)]:
+              segs,_=model.transcribe(audio[int(a*16000):int(b*16000)],language='ar',word_timestamps=True,beam_size=5,condition_on_previous_text=False,initial_prompt='بودكاست تونسي بالدارجة. produit winner, commande, profitable, cost per acquisition, coût par achat, CPA, seuil de rentabilité, break-even, dollar, دينار.')
               for s in segs:
                   d=dict(start=s.start+a,end=s.end+a,text=s.text,words=[dict(start=w.start+a,end=w.end+a,word=w.word,probability=w.probability) for w in s.words or []])
                   data.append(d)
@@ -47,6 +47,6 @@ jobs:
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: ecommerce-context-review
+          name: ecommerce-profit-review
           path: review.json
           retention-days: 1
