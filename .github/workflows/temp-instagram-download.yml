@@ -27,7 +27,7 @@ jobs:
             done
             python3 -m yt_dlp --proxy socks5://127.0.0.1:1080 --no-playlist --socket-timeout 20 --retries 1 -f 'b/bv*+ba' --merge-output-format mp4 -o 'Der_moKoXdo.%(ext)s' "$URL"
           fi
-          ffprobe -v error -show_format -show_streams Der_moKoXdo.mp4
+          test -s Der_moKoXdo.mp4
       - name: Upload media
         uses: actions/upload-artifact@v4
         with:
@@ -35,3 +35,8 @@ jobs:
           path: Der_moKoXdo.mp4
           if-no-files-found: error
           retention-days: 1
+      - name: Install FFmpeg and validate media
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          ffprobe -v error -show_format -show_streams Der_moKoXdo.mp4
