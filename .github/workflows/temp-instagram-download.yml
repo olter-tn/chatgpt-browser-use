@@ -1,0 +1,37 @@
+name: Temporary Instagram reel download
+on:
+  push:
+    branches: [master]
+    paths: ['.github/workflows/temp-instagram-download.yml']
+permissions:
+  contents: read
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Install downloader
+        run: python3 -m pip install --user -U --pre 'yt-dlp[default]'
+      - name: Retrieve reel
+        shell: bash
+        run: |
+          set -eu
+          URL='https://www.instagram.com/p/Der_moKoXdo/'
+          if ! python3 -m yt_dlp --no-playlist --socket-timeout 15 --retries 1 -f 'b/bv*+ba' --merge-output-format mp4 -o 'Der_moKoXdo.%(ext)s' "$URL"; then
+            docker run -d --name warp -p 1080:1080 --cap-add NET_ADMIN --sysctl net.ipv6.conf.all.disable_ipv6=0 --sysctl net.ipv4.conf.all.src_valid_mark=1 caomingjun/warp
+            for i in {1..20}; do
+              RESULT=$(curl -s --max-time 4 --socks5-hostname 127.0.0.1:1080 https://cloudflare.com/cdn-cgi/trace || true)
+              echo "$RESULT"
+              if echo "$RESULT" | grep -qE 'warp=(on|plus)'; then break; fi
+              sleep 2
+            done
+            python3 -m yt_dlp --proxy socks5://127.0.0.1:1080 --no-playlist --socket-timeout 20 --retries 1 -f 'b/bv*+ba' --merge-output-format mp4 -o 'Der_moKoXdo.%(ext)s' "$URL"
+          fi
+          ffprobe -v error -show_format -show_streams Der_moKoXdo.mp4
+      - name: Upload media
+        uses: actions/upload-artifact@v4
+        with:
+          name: Der_moKoXdo-video
+          path: Der_moKoXdo.mp4
+          if-no-files-found: error
+          retention-days: 1
